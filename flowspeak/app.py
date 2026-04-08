@@ -1,4 +1,5 @@
 import threading
+from pathlib import Path
 import numpy as np
 import rumps
 from PyObjCTools.AppHelper import callAfter
@@ -8,27 +9,31 @@ from flowspeak.recorder import AudioRecorder
 from flowspeak.transcriber import TranscriptionEngine
 from flowspeak.hotkey import HotkeyManager
 from flowspeak.injector import inject_text
+from flowspeak.dictionary import load_dictionary, apply_replacements, get_initial_prompt
+
+_ICONS_DIR = Path(__file__).resolve().parent.parent / "icons"
 
 
 class FlowSpeakApp(rumps.App):
     def __init__(self, config: FlowSpeakConfig):
         super().__init__(
             name="FlowSpeak",
-            title=None,
-            icon="icons/mic_idle.png",
+            title="FS",
+            icon=str(_ICONS_DIR / "mic_idle.png") if (_ICONS_DIR / "mic_idle.png").exists() else None,
             template=True,
             quit_button="Quit",
         )
         self._config = config
-        self._language = config.language
+        self._language = None  # Auto-detect by default
 
-        # Menu
-        self._lang_item = rumps.MenuItem(
-            f"Sprache: {'Deutsch' if self._language == 'de' else 'English'}"
-        )
+        # Dictionary
+        self._dictionary = load_dictionary()
+
+        # Menu — language cycle: Auto → Deutsch → English → Auto
+        self._lang_item = rumps.MenuItem("Sprache: Auto")
         self.menu = [self._lang_item, None]
 
-        # Components (initialized but not started)
+        # Components
         self._recorder = AudioRecorder(
             min_duration_seconds=config.min_duration_seconds,
         )
@@ -46,21 +51,28 @@ class FlowSpeakApp(rumps.App):
         self._worker_thread: threading.Thread | None = None
         self._running = True
 
+    @rumps.clicked("Sprache: Auto")
+    def _toggle_language_auto(self, sender):
+        self._cycle_language(sender)
+
     @rumps.clicked("Sprache: Deutsch")
     def _toggle_language_de(self, sender):
-        self._toggle_language(sender)
+        self._cycle_language(sender)
 
     @rumps.clicked("Sprache: English")
     def _toggle_language_en(self, sender):
-        self._toggle_language(sender)
+        self._cycle_language(sender)
 
-    def _toggle_language(self, sender):
-        if self._language == "de":
+    def _cycle_language(self, sender):
+        if self._language is None:
+            self._language = "de"
+            sender.title = "Sprache: Deutsch"
+        elif self._language == "de":
             self._language = "en"
             sender.title = "Sprache: English"
         else:
-            self._language = "de"
-            sender.title = "Sprache: Deutsch"
+            self._language = None
+            sender.title = "Sprache: Auto"
 
     def run(self, **kwargs):
         # Start worker thread
@@ -85,7 +97,7 @@ class FlowSpeakApp(rumps.App):
 
     def _set_idle(self):
         self.title = None
-        self.icon = "icons/mic_idle.png"
+        self.icon = str(_ICONS_DIR / "mic_idle.png")
 
     def _on_recording_start(self):
         """Called from pynput thread."""
@@ -99,11 +111,11 @@ class FlowSpeakApp(rumps.App):
         self._transcribe_event.set()
 
     def _set_recording(self):
-        self.icon = "icons/mic_recording.png"
+        self.icon = str(_ICONS_DIR / "mic_recording.png")
         self.title = "Rec..."
 
     def _set_working(self):
-        self.icon = "icons/mic_working.png"
+        self.icon = str(_ICONS_DIR / "mic_working.png")
         self.title = "..."
 
     def _transcription_worker(self):
@@ -114,6 +126,10 @@ class FlowSpeakApp(rumps.App):
             if not self._running:
                 break
 
+            # Reload dictionary each time (hot-reload)
+            self._dictionary = load_dictionary()
+            initial_prompt = get_initial_prompt(self._dictionary)
+
             audio = self._recorder.get_audio()
 
             if not self._recorder.is_valid_duration(audio):
@@ -121,18 +137,26 @@ class FlowSpeakApp(rumps.App):
                 continue
 
             try:
-                text = self._transcriber.transcribe(audio, language=self._language)
+                text = self._transcriber.transcribe(
+                    audio,
+                    language=self._language,
+                    initial_prompt=initial_prompt,
+                )
             except Exception as e:
                 print(f"Transcription error: {e}")
                 callAfter(self._set_idle)
                 continue
 
-            if text:
-                callAfter(
-                    lambda t=text: self._do_inject(t)
-                )
-            else:
+            if not text:
                 callAfter(self._set_idle)
+                continue
+
+            # Apply dictionary replacements
+            replacements = self._dictionary.get("replacements", {})
+            if replacements:
+                text = apply_replacements(text, replacements)
+
+            callAfter(lambda t=text: self._do_inject(t))
 
     def _do_inject(self, text: str):
         inject_text(
