@@ -1,3 +1,4 @@
+import time
 import threading
 from pathlib import Path
 import numpy as np
@@ -13,14 +14,17 @@ from flowspeak.dictionary import load_dictionary, apply_replacements, get_initia
 
 _ICONS_DIR = Path(__file__).resolve().parent.parent / "icons"
 
+# Spinner frames for processing animation
+_SPINNER = ["◐", "◓", "◑", "◒"]
+
 
 class FlowSpeakApp(rumps.App):
     def __init__(self, config: FlowSpeakConfig):
         super().__init__(
             name="FlowSpeak",
-            title="FS",
-            icon=str(_ICONS_DIR / "mic_idle.png") if (_ICONS_DIR / "mic_idle.png").exists() else None,
-            template=True,
+            title="🎙",
+            icon=None,
+            template=False,
             quit_button="Quit",
         )
         self._config = config
@@ -51,6 +55,13 @@ class FlowSpeakApp(rumps.App):
         self._worker_thread: threading.Thread | None = None
         self._running = True
 
+        # Spinner state
+        self._spinner_timer: rumps.Timer | None = None
+        self._spinner_index = 0
+
+        # Error reset timer
+        self._error_timer: rumps.Timer | None = None
+
     @rumps.clicked("Sprache: Auto")
     def _toggle_language_auto(self, sender):
         self._cycle_language(sender)
@@ -75,6 +86,9 @@ class FlowSpeakApp(rumps.App):
             sender.title = "Sprache: Auto"
 
     def run(self, **kwargs):
+        # Create error reset timer (stopped, reused)
+        self._error_timer = rumps.Timer(self._clear_error, 2.0)
+
         # Start worker thread
         self._worker_thread = threading.Thread(
             target=self._transcription_worker, daemon=True
@@ -82,7 +96,7 @@ class FlowSpeakApp(rumps.App):
         self._worker_thread.start()
 
         # Warm up model
-        self.title = "Loading..."
+        self.title = "⏳"
         threading.Thread(target=self._warmup, daemon=True).start()
 
         # Start hotkey listener
@@ -96,8 +110,26 @@ class FlowSpeakApp(rumps.App):
         callAfter(self._set_idle)
 
     def _set_idle(self):
-        self.title = None
-        self.icon = str(_ICONS_DIR / "mic_idle.png")
+        self._stop_spinner()
+        self._stop_error_timer()
+        self.title = "🎙"
+
+    def _show_error(self, message: str):
+        """Show error in menu bar, auto-clear after 2 seconds."""
+        self._stop_spinner()
+        self.title = f"⚠️ {message}"
+        # Restart the error timer
+        self._stop_error_timer()
+        self._error_timer = rumps.Timer(self._clear_error, 2.0)
+        self._error_timer.start()
+
+    def _clear_error(self, timer):
+        timer.stop()
+        self._set_idle()
+
+    def _stop_error_timer(self):
+        if self._error_timer and self._error_timer.is_alive():
+            self._error_timer.stop()
 
     def _on_recording_start(self):
         """Called from pynput thread."""
@@ -111,12 +143,23 @@ class FlowSpeakApp(rumps.App):
         self._transcribe_event.set()
 
     def _set_recording(self):
-        self.icon = str(_ICONS_DIR / "mic_recording.png")
-        self.title = "Rec..."
+        self._stop_spinner()
+        self._stop_error_timer()
+        self.title = "🔴"
 
     def _set_working(self):
-        self.icon = str(_ICONS_DIR / "mic_working.png")
-        self.title = "..."
+        self._spinner_index = 0
+        self._spinner_timer = rumps.Timer(self._spin, 0.15)
+        self._spinner_timer.start()
+
+    def _spin(self, timer):
+        self.title = _SPINNER[self._spinner_index % len(_SPINNER)]
+        self._spinner_index += 1
+
+    def _stop_spinner(self):
+        if self._spinner_timer and self._spinner_timer.is_alive():
+            self._spinner_timer.stop()
+        self._spinner_timer = None
 
     def _transcription_worker(self):
         while self._running:
@@ -133,7 +176,11 @@ class FlowSpeakApp(rumps.App):
             audio = self._recorder.get_audio()
 
             if not self._recorder.is_valid_duration(audio):
-                callAfter(self._set_idle)
+                callAfter(lambda: self._show_error("Zu kurz"))
+                continue
+
+            if not self._recorder.has_speech(audio):
+                callAfter(lambda: self._show_error("Kein Audio"))
                 continue
 
             try:
@@ -144,11 +191,11 @@ class FlowSpeakApp(rumps.App):
                 )
             except Exception as e:
                 print(f"Transcription error: {e}")
-                callAfter(self._set_idle)
+                callAfter(lambda: self._show_error("Fehler"))
                 continue
 
             if not text:
-                callAfter(self._set_idle)
+                callAfter(lambda: self._show_error("Nicht erkannt"))
                 continue
 
             # Apply dictionary replacements
@@ -168,6 +215,8 @@ class FlowSpeakApp(rumps.App):
 
     def terminate_(self, sender):
         self._running = False
+        self._stop_spinner()
+        self._stop_error_timer()
         self._transcribe_event.set()
         self._hotkey.stop()
         self._recorder.close()
