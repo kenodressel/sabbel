@@ -20,11 +20,12 @@ _SPINNER = ["◐", "◓", "◑", "◒"]
 
 class FlowSpeakApp(rumps.App):
     def __init__(self, config: FlowSpeakConfig):
+        idle_icon = _ICONS_DIR / "mic_idle.png"
         super().__init__(
             name="FlowSpeak",
             title="🎙",
-            icon=None,
-            template=False,
+            icon=str(idle_icon) if idle_icon.exists() else None,
+            template=True,
             quit_button="Quit",
         )
         self._config = config

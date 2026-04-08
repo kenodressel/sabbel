@@ -1,0 +1,13 @@
+[initial_prompt]
+# Example sentences with your vocabulary — biases Whisper toward these terms.
+# Write natural sentences that use your domain-specific words.
+# Max ~200 words. Put important terms at the end.
+text = ""
+
+[replacements]
+# Post-transcription find-and-replace (case-insensitive).
+# Useful for terms Whisper consistently gets wrong.
+#
+# Examples:
+# "kay pee eye" = "KPI"
+# "oh kay are" = "OKR"
