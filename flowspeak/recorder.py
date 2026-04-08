@@ -45,5 +45,16 @@ class AudioRecorder:
     def is_valid_duration(self, audio: np.ndarray) -> bool:
         return len(audio) >= self._min_samples
 
+    def has_speech(self, audio: np.ndarray, rms_threshold: float = 0.01) -> bool:
+        """Check if audio contains likely speech based on RMS energy.
+
+        Fast check (~microseconds) — just compares volume level against threshold.
+        Default threshold 0.01 filters silence/quiet background noise.
+        """
+        if len(audio) == 0:
+            return False
+        rms = float(np.sqrt(np.mean(audio ** 2)))
+        return rms > rms_threshold
+
     def close(self):
         self._stream.close()
