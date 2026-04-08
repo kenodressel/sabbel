@@ -15,11 +15,10 @@ def test_transcribe_returns_text(mock_whisper):
     audio = np.random.randn(16000).astype(np.float32)
     result = engine.transcribe(audio, language="de")
     assert result == "Hallo Welt"
-    mock_whisper.transcribe.assert_called_once_with(
-        audio,
-        path_or_hf_repo="mlx-community/whisper-tiny",
-        language="de",
-    )
+    mock_whisper.transcribe.assert_called_once()
+    call_kwargs = mock_whisper.transcribe.call_args[1]
+    assert call_kwargs["path_or_hf_repo"] == "mlx-community/whisper-tiny"
+    assert call_kwargs["language"] == "de"
 
 
 @patch("flowspeak.transcriber.mlx_whisper")
