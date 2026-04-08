@@ -2,7 +2,7 @@ PLIST_NAME = com.flowspeak.agent
 PLIST_DIR = $(HOME)/Library/LaunchAgents
 PLIST_PATH = $(PLIST_DIR)/$(PLIST_NAME).plist
 CONFIG_DIR = $(HOME)/.config/flowspeak
-VENV_PYTHON = $(shell pwd)/.venv/bin/python
+VENV_PYTHON = $(shell pwd)/.venv/bin/FlowSpeak
 PROJECT_DIR = $(shell pwd)
 
 .PHONY: run autostart autostart-remove stop restart status setup-dictionary download-model help
@@ -12,6 +12,7 @@ run: ## Start FlowSpeak (foreground)
 
 autostart: ## Set up FlowSpeak to start on login
 	@uv sync --quiet
+	@ln -sf $$(readlink -f .venv/bin/python) .venv/bin/FlowSpeak
 	@mkdir -p $(PLIST_DIR)
 	@sed "s|__PYTHON__|$(VENV_PYTHON)|g; s|__PROJECT__|$(PROJECT_DIR)|g" \
 		scripts/com.flowspeak.agent.plist > $(PLIST_PATH)
