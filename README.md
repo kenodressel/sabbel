@@ -76,7 +76,6 @@ min_duration_seconds = 0.5
 
 - macOS 14+ (Sonoma) on Apple Silicon
 - [uv](https://docs.astral.sh/uv/) (or Python 3.10+ with pip)
-- ffmpeg (`brew install ffmpeg`)
 
 ## Logs
 

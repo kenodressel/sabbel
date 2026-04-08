@@ -19,6 +19,9 @@ dev = ["pytest>=7.0"]
 [project.scripts]
 flowspeak = "flowspeak.__main__:main"
 
+[tool.setuptools.packages.find]
+include = ["flowspeak*"]
+
 [build-system]
 requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
