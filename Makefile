@@ -7,7 +7,7 @@ INSTALL_APP_DIR = $(HOME)/Applications/Sabbel.app
 LAUNCH_DOMAIN = gui/$(shell id -u)
 LAUNCH_SERVICE = $(LAUNCH_DOMAIN)/$(PLIST_NAME)
 
-.PHONY: run build-app install-app autostart autostart-remove stop restart status setup-dictionary download-model help
+.PHONY: run build-app install-app reinstall-app ensure-app-installed autostart autostart-remove stop restart status setup-dictionary download-model help
 
 run: ## Start Sabbel (foreground)
 	uv run sabbel
@@ -72,7 +72,16 @@ install-app: build-app ## Install Sabbel.app into ~/Applications
 	@cp -R dist/Sabbel.app $(INSTALL_APP_DIR)
 	@echo "✓ Installed $(INSTALL_APP_DIR)"
 
-autostart: install-app ## Set up Sabbel to start on login
+reinstall-app: install-app ## Force a fresh app install after bundle changes
+
+ensure-app-installed:
+	@if [ -d "$(INSTALL_APP_DIR)" ]; then \
+		echo "✓ Reusing existing $(INSTALL_APP_DIR)"; \
+	else \
+		$(MAKE) install-app; \
+	fi
+
+autostart: ensure-app-installed ## Set up Sabbel to start on login
 	@mkdir -p $(PLIST_DIR)
 	@sed "s|__APP_BUNDLE__|$(INSTALL_APP_DIR)|g; s|__PROJECT__|$(PROJECT_DIR)|g" \
 		scripts/com.sabbel.agent.plist > $(PLIST_PATH)
@@ -84,6 +93,7 @@ autostart: install-app ## Set up Sabbel to start on login
 	@echo "✓ Sabbel will start on login and is running now."
 	@echo "  Stop:    make stop"
 	@echo "  Restart: make restart"
+	@echo "  Reinstall after bundle changes: make reinstall-app"
 	@echo "  Remove:  make autostart-remove"
 
 autostart-remove: stop ## Remove auto-start on login

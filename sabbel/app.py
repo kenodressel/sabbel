@@ -32,6 +32,14 @@ def _language_menu_title(language: str | None) -> str:
     return "Sprache: Auto"
 
 
+def _next_language(language: str | None) -> str | None:
+    if language is None:
+        return "de"
+    if language == "de":
+        return "en"
+    return None
+
+
 class SabbelApp(rumps.App):
     def __init__(self, config: SabbelConfig):
         super().__init__(
@@ -51,6 +59,7 @@ class SabbelApp(rumps.App):
         self._status_item = rumps.MenuItem("Status: Starte")
         self._lang_item = rumps.MenuItem(_language_menu_title(self._language))
         self.menu = [self._status_item, self._lang_item, None]
+        self._lang_item.set_callback(self._cycle_language)
 
         # Components
         self._recorder = AudioRecorder(
@@ -80,28 +89,9 @@ class SabbelApp(rumps.App):
         self._hotkey_started = False
         self._permission_thread: threading.Thread | None = None
 
-    @rumps.clicked("Sprache: Auto")
-    def _toggle_language_auto(self, sender):
-        self._cycle_language(sender)
-
-    @rumps.clicked("Sprache: Deutsch")
-    def _toggle_language_de(self, sender):
-        self._cycle_language(sender)
-
-    @rumps.clicked("Sprache: English")
-    def _toggle_language_en(self, sender):
-        self._cycle_language(sender)
-
     def _cycle_language(self, sender):
-        if self._language is None:
-            self._language = "de"
-            sender.title = "Sprache: Deutsch"
-        elif self._language == "de":
-            self._language = "en"
-            sender.title = "Sprache: English"
-        else:
-            self._language = None
-            sender.title = "Sprache: Auto"
+        self._language = _next_language(self._language)
+        sender.title = _language_menu_title(self._language)
 
     def run(self, **kwargs):
         # Create error reset timer (stopped, reused)

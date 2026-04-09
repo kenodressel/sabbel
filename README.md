@@ -98,9 +98,12 @@ If you build from source, you can set up Sabbel as a login item:
 make autostart          # Start now + on every login
 make stop               # Stop
 make restart             # Restart
+make reinstall-app      # Reinstall app bundle after packaging changes
 make autostart-remove   # Disable
 make status              # Check if running
 ```
+
+For normal Python code changes, prefer `make restart`. Reinstalling the app bundle can cause macOS to treat it like a fresh app for Accessibility and Microphone permissions, so `make reinstall-app` should only be used after bundle or packaging changes.
 
 ## Requirements
 
@@ -116,6 +119,7 @@ uv run sabbel            # Run from source
 uv run pytest            # Run tests
 make build-app           # Build standalone .app with py2app
 make install-app         # Build + install to ~/Applications
+make restart             # Reload the already installed app during normal dev
 ```
 
 ## Contributing
