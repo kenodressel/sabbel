@@ -10,6 +10,10 @@ ZIP_NAME="Sabbel.zip"
 INSTALL_DIR="${HOME}/Applications"
 DOWNLOAD_URL="https://github.com/${REPO}/releases/latest/download/${ZIP_NAME}"
 
+PLIST_LABEL="com.sabbel.agent"
+PLIST_DIR="${HOME}/Library/LaunchAgents"
+PLIST_PATH="${PLIST_DIR}/${PLIST_LABEL}.plist"
+
 # ---------------------------------------------------------------------------
 # Output helpers
 # ---------------------------------------------------------------------------
@@ -106,6 +110,58 @@ fi
 
 info "Installing to ${DEST}..."
 ditto "${TMPDIR}/${APP_NAME}" "${DEST}"
+
+# ---------------------------------------------------------------------------
+# Autostart prompt
+# ---------------------------------------------------------------------------
+
+setup_autostart() {
+  mkdir -p "${PLIST_DIR}"
+  cat > "${PLIST_PATH}" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>${PLIST_LABEL}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/open</string>
+        <string>-a</string>
+        <string>${DEST}</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/sabbel.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/sabbel.log</string>
+</dict>
+</plist>
+PLIST
+
+  DOMAIN="gui/$(id -u)"
+  launchctl bootout "${DOMAIN}/${PLIST_LABEL}" 2>/dev/null || true
+  launchctl bootstrap "${DOMAIN}" "${PLIST_PATH}"
+  success "Sabbel will start automatically on login."
+}
+
+if [ -t 0 ]; then
+  # Interactive — ask the user
+  printf "\n"
+  printf "%sStart Sabbel on login?%s [Y/n] " "${BOLD}" "${RESET}"
+  read -r REPLY
+  case "${REPLY}" in
+    [nN]*) ;;
+    *)     setup_autostart ;;
+  esac
+else
+  # Non-interactive (piped) — skip autostart
+  printf "\n"
+  info "To start Sabbel on login, run:"
+  printf "  launchctl load ~/Library/LaunchAgents/com.sabbel.agent.plist\n"
+fi
 
 # ---------------------------------------------------------------------------
 # Success
