@@ -92,8 +92,8 @@ OPTIONS = {
         "CFBundleDisplayName": "Sabbel",
         "CFBundleIdentifier": "com.sabbel.app",
         "CFBundleName": "Sabbel",
-        "CFBundleShortVersionString": "0.1.0",
-        "CFBundleVersion": "0.1.0",
+        "CFBundleShortVersionString": "0.1.1",
+        "CFBundleVersion": "0.1.1",
         "LSMinimumSystemVersion": "14.0",
         "LSUIElement": True,
         "NSMicrophoneUsageDescription": (

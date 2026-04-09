@@ -1,6 +1,6 @@
 # Sabbel — Future Work & Research Notes
 
-## Current State (v0.1.0)
+## Current State (v0.1.1)
 
 Working features:
 - Push-to-talk dictation (Right Option key)
