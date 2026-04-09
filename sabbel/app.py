@@ -112,7 +112,7 @@ class SabbelApp(rumps.App):
         super().run(**kwargs)
 
     def _monitor_permissions(self):
-        mic_requested = False
+        microphone_prompted = False
         accessibility_prompted = False
         while self._running and not self._hotkey_started:
             if not check_accessibility(prompt=not accessibility_prompted):
@@ -121,12 +121,11 @@ class SabbelApp(rumps.App):
                 time.sleep(1)
                 continue
 
-            if not mic_requested:
-                mic_requested = True
-                if not check_microphone():
-                    callAfter(lambda: self._set_status("Mikrofon fehlt"))
-                    time.sleep(1)
-                    continue
+            if not check_microphone(request_if_needed=not microphone_prompted):
+                microphone_prompted = True
+                callAfter(lambda: self._set_status("Mikrofon fehlt"))
+                time.sleep(1)
+                continue
 
             self._hotkey.start()
             self._hotkey_started = True
