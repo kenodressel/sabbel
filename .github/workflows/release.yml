@@ -14,12 +14,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-
       - name: Install uv
         uses: astral-sh/setup-uv@v4
+
+      - name: Install Python via uv
+        run: uv python install 3.13
 
       - name: Install dependencies
         run: uv sync --extra build --extra dev
@@ -30,12 +29,25 @@ jobs:
       - name: Build Sabbel.app
         run: make build-app
 
-      - name: Verify bundle
+      - name: Verify bundle is standalone
         run: |
           test -d dist/Sabbel.app/Contents/MacOS
           test -f dist/Sabbel.app/Contents/Info.plist
           test -f dist/Sabbel.app/Contents/Frameworks/mlx.metallib
-          echo "✓ Bundle structure verified"
+          test -f dist/Sabbel.app/Contents/Frameworks/libpython3.13.dylib \
+            && echo "✓ libpython embedded (standalone)" \
+            || { echo "✗ libpython NOT embedded (semi-standalone)"; exit 1; }
+          # Check no absolute paths leak
+          LEAKS=$(find dist/Sabbel.app \( -name "*.dylib" -o -name "*.so" \) \
+            -exec otool -L {} \; 2>/dev/null \
+            | grep -E "^\t/(opt/homebrew|usr/local|Users)" || true)
+          if [ -n "$LEAKS" ]; then
+            echo "✗ Non-portable paths found:"
+            echo "$LEAKS"
+            exit 1
+          fi
+          echo "✓ No path leaks detected"
+          echo "✓ Bundle verification passed"
 
       - name: Zip the app
         run: |
