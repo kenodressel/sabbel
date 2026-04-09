@@ -37,6 +37,33 @@ build-app: icons/Sabbel.icns ## Build standalone Sabbel.app with py2app
 			cp "$$METALLIB" dist/Sabbel.app/Contents/Frameworks/mlx.metallib; \
 			echo "✓ Copied mlx.metallib into Frameworks"; \
 		fi
+	@# mlx is a namespace package (no __init__.py) so py2app only bundles
+	@# core.so via import analysis.  Copy the full mlx Python package and
+	@# remove the incomplete stubs from the zip so the filesystem copy
+	@# takes precedence at runtime.
+	@MLX_PKG=$$(find .venv -type d -name "mlx" -path "*/site-packages/mlx" | head -1); \
+		if [ -n "$$MLX_PKG" ]; then \
+			PYVER=$$(ls dist/Sabbel.app/Contents/Resources/lib/ | grep python3 | grep -v zip | head -1); \
+			DEST=dist/Sabbel.app/Contents/Resources/lib/$$PYVER/mlx; \
+			mkdir -p "$$DEST"; \
+			cp -R "$$MLX_PKG"/* "$$DEST"/; \
+			echo "✓ Copied mlx package into bundle"; \
+		fi
+	@ZIPFILE=$$(find dist/Sabbel.app/Contents/Resources/lib -name "python3*.zip" | head -1); \
+		if [ -n "$$ZIPFILE" ]; then \
+			python3 -c "import zipfile,shutil; src='$$ZIPFILE'; tmp=src+'.tmp'; zi=zipfile.ZipFile(src,'r'); zo=zipfile.ZipFile(tmp,'w'); [zo.writestr(i,zi.read(i.filename)) for i in zi.infolist() if not i.filename.startswith('mlx/')]; zi.close(); zo.close(); shutil.move(tmp,src)"; \
+			echo "✓ Removed mlx stubs from zip"; \
+		fi
+	@# Fix mlx/core.so rpath: py2app rewrites libmlx.dylib's install name
+	@# to @executable_path/../Frameworks/libmlx.dylib, but core.so still
+	@# has @rpath/libmlx.dylib with rpath=@loader_path/lib.  Add the
+	@# Frameworks dir so @rpath resolution finds the bundled dylib.
+	@CORE_SO=$$(find dist/Sabbel.app -name "core.so" -path "*/mlx/*" 2>/dev/null | head -1); \
+		if [ -n "$$CORE_SO" ]; then \
+			install_name_tool -add_rpath @executable_path/../Frameworks "$$CORE_SO" 2>/dev/null || true; \
+			codesign --force --sign - "$$CORE_SO" 2>/dev/null || true; \
+			echo "✓ Fixed mlx/core.so rpath"; \
+		fi
 	@echo "✓ Built dist/Sabbel.app"
 
 install-app: build-app ## Install Sabbel.app into ~/Applications
