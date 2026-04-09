@@ -31,6 +31,7 @@ On first launch, macOS will ask for **Accessibility** and **Microphone** permiss
 ```bash
 make build-app           # Build local FlowSpeak.app
 make install-app         # Install FlowSpeak.app into ~/Applications
+make reinstall-app       # Force a fresh install if bundle/launcher changed
 make autostart          # Enable — starts now + on every login
 make stop               # Stop
 make restart             # Restart
@@ -40,6 +41,13 @@ make status              # Check if running
 
 `make autostart` now installs and launches `~/Applications/FlowSpeak.app`, so macOS permission dialogs
 and login-item startup use the app identity instead of `python3.x`.
+
+Important for local development:
+
+- The installed `FlowSpeak.app` launcher already loads Python code from this workspace.
+- That means normal edits to files in `flowspeak/` only need `make restart`.
+- Reinstalling the app bundle can cause macOS Accessibility/Microphone permissions to be asked again.
+- Only use `make reinstall-app` when the app bundle itself changed, for example launcher code, bundle metadata, or packaged resources.
 
 ## Signing And Distribution
 

@@ -24,7 +24,7 @@ PYTHON_DYNLOAD = $(PYTHON_STDLIB)/lib-dynload
 SITE_PACKAGES = $(PROJECT_DIR)/.venv/lib/python$(PYTHON_VERSION)/site-packages
 PYTHON_CONFIG = $(PYTHON_HOME)/bin/python$(PYTHON_VERSION)-config
 
-.PHONY: run build-app install-app autostart autostart-remove stop restart status setup-dictionary download-model help
+.PHONY: run build-app install-app reinstall-app ensure-app-installed autostart autostart-remove stop restart status setup-dictionary download-model help
 
 run: ## Start FlowSpeak (foreground)
 	uv run flowspeak
@@ -63,11 +63,20 @@ install-app: build-app ## Install FlowSpeak.app into ~/Applications
 	@codesign $(SIGNING_FLAGS) $(INSTALL_APP_DIR) >/dev/null 2>&1 || true
 	@echo "✓ Installed $(INSTALL_APP_DIR)"
 
+reinstall-app: install-app ## Force a fresh app bundle install (may require re-granting permissions)
+
+ensure-app-installed:
+	@if [ -d "$(INSTALL_APP_DIR)" ]; then \
+		echo "✓ Reusing existing $(INSTALL_APP_DIR)"; \
+	else \
+		$(MAKE) install-app; \
+	fi
+
 show-signing: ## Show the signing identity currently configured for app builds
 	@echo "SIGNING_IDENTITY=$(SIGNING_IDENTITY)"
 
 autostart: ## Set up FlowSpeak to start on login
-	@$(MAKE) install-app
+	@$(MAKE) ensure-app-installed
 	@mkdir -p $(PLIST_DIR)
 	@sed "s|__APP_BUNDLE__|$(INSTALL_APP_DIR)|g; s|__PROJECT__|$(PROJECT_DIR)|g" \
 		scripts/com.flowspeak.agent.plist > $(PLIST_PATH)
@@ -78,6 +87,8 @@ autostart: ## Set up FlowSpeak to start on login
 	@launchctl kickstart -k $(LAUNCH_SERVICE) >/dev/null
 	@echo "✓ FlowSpeak will start on login and is running now."
 	@echo "  Stop:    make stop"
+	@echo "  Restart: make restart"
+	@echo "  Reinstall only when launcher/bundle changes: make reinstall-app"
 	@echo "  Remove:  make autostart-remove"
 
 autostart-remove: stop ## Remove auto-start on login
