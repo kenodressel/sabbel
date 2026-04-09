@@ -37,7 +37,13 @@ Sabbel runs entirely on your Mac using [MLX Whisper](https://github.com/ml-explo
 curl -fsSL https://raw.githubusercontent.com/kenodressel/sabbel/main/install.sh | sh
 ```
 
-That's it. No dependencies, no Python, no package manager. The script downloads `Sabbel.app` and puts it in `~/Applications`.
+Install without autostart:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kenodressel/sabbel/main/install.sh | sh -s -- --no-autostart
+```
+
+No dependencies, no Python, no package manager. The script downloads `Sabbel.app` and puts it in `~/Applications`.
 
 On first launch:
 - macOS asks for **Accessibility** and **Microphone** permissions

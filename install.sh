@@ -147,20 +147,26 @@ PLIST
   success "Sabbel will start automatically on login."
 }
 
+# Parse flags
+AUTOSTART=true
+for arg in "$@"; do
+  case "${arg}" in
+    --no-autostart) AUTOSTART=false ;;
+  esac
+done
+
 if [ -t 0 ]; then
   # Interactive — ask the user
   printf "\n"
   printf "%sStart Sabbel on login?%s [Y/n] " "${BOLD}" "${RESET}"
   read -r REPLY
   case "${REPLY}" in
-    [nN]*) ;;
-    *)     setup_autostart ;;
+    [nN]*) AUTOSTART=false ;;
   esac
-else
-  # Non-interactive (piped) — skip autostart
-  printf "\n"
-  info "To start Sabbel on login, run:"
-  printf "  launchctl load ~/Library/LaunchAgents/com.sabbel.agent.plist\n"
+fi
+
+if [ "${AUTOSTART}" = true ]; then
+  setup_autostart
 fi
 
 # ---------------------------------------------------------------------------
