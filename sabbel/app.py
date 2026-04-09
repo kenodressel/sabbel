@@ -49,6 +49,7 @@ class SabbelApp(rumps.App):
         self._hotkey = HotkeyManager(
             on_start=self._on_recording_start,
             on_stop=self._on_recording_stop,
+            hotkey=config.hotkey,
         )
 
         # Worker thread event

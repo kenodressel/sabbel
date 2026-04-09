@@ -62,7 +62,8 @@ Create `~/.config/sabbel/config.toml` to override defaults:
 
 ```toml
 [general]
-language = "de"  # "de", "en", or omit for auto-detect
+language = "de"    # "de", "en", or omit for auto-detect
+hotkey = "alt_r"   # any pynput key name: alt_r, f5, ctrl_r, cmd_r, ...
 
 [model]
 repo = "mlx-community/whisper-large-v3-turbo"

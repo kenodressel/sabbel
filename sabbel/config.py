@@ -10,6 +10,7 @@ class SabbelConfig:
     min_duration_seconds: float = 0.5
     pre_paste_delay: float = 0.05
     post_paste_delay: float = 0.15
+    hotkey: str = "alt_r"
 
 
 _TOML_MAP = {
@@ -18,6 +19,7 @@ _TOML_MAP = {
     ("audio", "min_duration_seconds"): "min_duration_seconds",
     ("injection", "pre_paste_delay"): "pre_paste_delay",
     ("injection", "post_paste_delay"): "post_paste_delay",
+    ("general", "hotkey"): "hotkey",
 }
 
 _VALID_FIELDS = {f.name for f in fields(SabbelConfig)}
