@@ -1,6 +1,6 @@
 import time
 import threading
-from pathlib import Path
+import logging
 import numpy as np
 import rumps
 import sounddevice as sd
@@ -12,8 +12,7 @@ from flowspeak.transcriber import TranscriptionEngine
 from flowspeak.hotkey import HotkeyManager
 from flowspeak.injector import inject_text
 from flowspeak.dictionary import load_dictionary, apply_replacements, get_initial_prompt
-
-_ICONS_DIR = Path(__file__).resolve().parent.parent / "icons"
+from flowspeak.permissions import check_accessibility, check_microphone
 
 # Spinner frames for processing animation
 _SPINNER = ["◐", "◓", "◑", "◒"]
@@ -35,8 +34,9 @@ class FlowSpeakApp(rumps.App):
         self._dictionary = load_dictionary()
 
         # Menu — language cycle: Auto → Deutsch → English → Auto
+        self._status_item = rumps.MenuItem("Status: Starte")
         self._lang_item = rumps.MenuItem("Sprache: Auto")
-        self.menu = [self._lang_item, None]
+        self.menu = [self._status_item, self._lang_item, None]
 
         # Components
         self._recorder = AudioRecorder(
@@ -62,6 +62,8 @@ class FlowSpeakApp(rumps.App):
 
         # Error reset timer
         self._error_timer: rumps.Timer | None = None
+        self._hotkey_started = False
+        self._permission_thread: threading.Thread | None = None
 
     @rumps.clicked("Sprache: Auto")
     def _toggle_language_auto(self, sender):
@@ -100,24 +102,56 @@ class FlowSpeakApp(rumps.App):
         self.title = "⏳"
         threading.Thread(target=self._warmup, daemon=True).start()
 
-        # Start hotkey listener
-        self._hotkey.start()
+        self._permission_thread = threading.Thread(
+            target=self._monitor_permissions, daemon=True
+        )
+        self._permission_thread.start()
 
         # Run main loop (blocks)
         super().run(**kwargs)
 
+    def _monitor_permissions(self):
+        mic_requested = False
+        accessibility_prompted = False
+        while self._running and not self._hotkey_started:
+            if not check_accessibility(prompt=not accessibility_prompted):
+                accessibility_prompted = True
+                callAfter(lambda: self._set_status("Accessibility fehlt"))
+                time.sleep(1)
+                continue
+
+            if not mic_requested:
+                mic_requested = True
+                if not check_microphone():
+                    callAfter(lambda: self._set_status("Mikrofon fehlt"))
+                    time.sleep(1)
+                    continue
+
+            self._hotkey.start()
+            self._hotkey_started = True
+            logging.info("Permissions ready; hotkey started")
+            callAfter(lambda: self._set_status("Bereit"))
+
+    def _set_status(self, message: str):
+        self._status_item.title = f"Status: {message}"
+
     def _warmup(self):
         self._transcriber.warmup()
+        logging.info("Whisper warmup completed")
         callAfter(self._set_idle)
 
     def _set_idle(self):
         self._stop_spinner()
         self._stop_error_timer()
+        if self._hotkey_started:
+            self._set_status("Bereit")
         self.title = "🎙"
 
     def _show_error(self, message: str):
         """Show error in menu bar, auto-clear after 2 seconds."""
         self._stop_spinner()
+        logging.error("FlowSpeak error: %s", message)
+        self._set_status(message)
         self.title = f"⚠️ {message}"
         # Restart the error timer
         self._stop_error_timer()
@@ -137,7 +171,7 @@ class FlowSpeakApp(rumps.App):
         try:
             self._recorder.start()
         except sd.PortAudioError as exc:
-            print(f"Recorder error: {exc}")
+            logging.exception("Recorder error")
             callAfter(lambda: self._show_error("Mikrofonfehler"))
             return
         callAfter(self._set_recording)
@@ -197,7 +231,7 @@ class FlowSpeakApp(rumps.App):
                     initial_prompt=initial_prompt,
                 )
             except Exception as e:
-                print(f"Transcription error: {e}")
+                logging.exception("Transcription error")
                 callAfter(lambda: self._show_error("Fehler"))
                 continue
 
