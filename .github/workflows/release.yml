@@ -34,6 +34,7 @@ jobs:
 
       - name: Build Sabbel.app
         run: |
+          make icons/Sabbel.icns
           .venv/bin/python setup.py py2app
           # Post-build fixups (same as Makefile)
           METALLIB=$(find .venv -name "mlx.metallib" -type f 2>/dev/null | head -1)
