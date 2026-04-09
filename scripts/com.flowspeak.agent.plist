@@ -7,15 +7,13 @@
     <string>com.flowspeak.agent</string>
     <key>ProgramArguments</key>
     <array>
-        <string>__PYTHON__</string>
-        <string>-m</string>
-        <string>flowspeak</string>
+        <string>/usr/bin/open</string>
+        <string>-a</string>
+        <string>__APP_BUNDLE__</string>
     </array>
     <key>WorkingDirectory</key>
     <string>__PROJECT__</string>
     <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
     <true/>
     <key>StandardOutPath</key>
     <string>/tmp/flowspeak.log</string>

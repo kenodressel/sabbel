@@ -11,8 +11,8 @@ Runs entirely on your Mac using Apple Silicon GPU. No cloud, no subscription, wo
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Clone and run
-git clone https://github.com/yourname/flowspeak
-cd flowspeak
+git clone https://github.com/kenodressel/wispr-flow-clone
+cd wispr-flow-clone
 uv run flowspeak
 ```
 

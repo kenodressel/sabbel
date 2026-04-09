@@ -158,6 +158,17 @@ class FlowSpeakApp(rumps.App):
         self._error_timer = rumps.Timer(self._clear_error, 2.0)
         self._error_timer.start()
 
+    def _notify_no_audio(self):
+        try:
+            rumps.notification(
+                title="FlowSpeak",
+                subtitle="Kein Audio erkannt",
+                message="Ich habe beim letzten Versuch keine Sprache gehoert.",
+                sound=False,
+            )
+        except Exception:
+            logging.exception("Failed to send no-audio notification")
+
     def _clear_error(self, timer):
         timer.stop()
         self._set_idle()
@@ -238,6 +249,7 @@ class FlowSpeakApp(rumps.App):
             if not self._recorder.has_speech(audio):
                 logging.info("Recording rejected: no speech detected")
                 callAfter(lambda: self._show_error("Kein Audio"))
+                callAfter(self._notify_no_audio)
                 continue
 
             try:
