@@ -11,8 +11,8 @@ Laeuft komplett auf deinem Mac mit Apple Silicon GPU. Keine Cloud, kein Abo, fun
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Clone and run
-git clone https://github.com/kenodressel/wispr-flow-clone
-cd wispr-flow-clone
+git clone https://github.com/kenodressel/sabbel
+cd sabbel
 uv run sabbel
 ```
 
