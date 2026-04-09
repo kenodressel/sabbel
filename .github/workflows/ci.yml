@@ -22,7 +22,10 @@ jobs:
         uses: astral-sh/setup-uv@v4
 
       - name: Install dependencies
-        run: uv sync --extra dev --python /Library/Frameworks/Python.framework/Versions/3.13/bin/python3.13
+        run: |
+          FWPYTHON=/Library/Frameworks/Python.framework/Versions/3.13/bin/python3.13
+          $FWPYTHON -m venv .venv
+          .venv/bin/pip install -e '.[dev]'
 
       - name: Run tests
-        run: uv run pytest tests/ -v
+        run: .venv/bin/python -m pytest tests/ -v

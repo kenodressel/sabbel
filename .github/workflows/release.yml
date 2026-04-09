@@ -24,13 +24,35 @@ jobs:
         uses: astral-sh/setup-uv@v4
 
       - name: Install dependencies
-        run: uv sync --extra build --extra dev --python /Library/Frameworks/Python.framework/Versions/3.13/bin/python3.13
+        run: |
+          FWPYTHON=/Library/Frameworks/Python.framework/Versions/3.13/bin/python3.13
+          $FWPYTHON -m venv .venv
+          .venv/bin/pip install -e '.[build,dev]'
 
       - name: Run tests
-        run: uv run pytest tests/ -v
+        run: .venv/bin/python -m pytest tests/ -v
 
       - name: Build Sabbel.app
-        run: make build-app
+        run: |
+          .venv/bin/python setup.py py2app
+          # Post-build fixups (same as Makefile)
+          METALLIB=$(find .venv -name "mlx.metallib" -type f 2>/dev/null | head -1)
+          [ -n "$METALLIB" ] && cp "$METALLIB" dist/Sabbel.app/Contents/Frameworks/mlx.metallib
+          MLX_PKG=$(find .venv -type d -name "mlx" -path "*/site-packages/mlx" | head -1)
+          if [ -n "$MLX_PKG" ]; then
+            PYVER=$(ls dist/Sabbel.app/Contents/Resources/lib/ | grep python3 | grep -v zip | head -1)
+            DEST=dist/Sabbel.app/Contents/Resources/lib/$PYVER/mlx
+            mkdir -p "$DEST"
+            cp -R "$MLX_PKG"/* "$DEST"/
+          fi
+          ZIPFILE=$(find dist/Sabbel.app/Contents/Resources/lib -name "python3*.zip" | head -1)
+          [ -n "$ZIPFILE" ] && python3 -c "import zipfile,shutil; src='$ZIPFILE'; tmp=src+'.tmp'; zi=zipfile.ZipFile(src,'r'); zo=zipfile.ZipFile(tmp,'w'); [zo.writestr(i,zi.read(i.filename)) for i in zi.infolist() if not i.filename.startswith('mlx/')]; zi.close(); zo.close(); shutil.move(tmp,src)"
+          CORE_SO=$(find dist/Sabbel.app -name "core.so" -path "*/mlx/*" 2>/dev/null | head -1)
+          if [ -n "$CORE_SO" ]; then
+            install_name_tool -add_rpath @executable_path/../Frameworks "$CORE_SO" 2>/dev/null || true
+            codesign --force --sign - "$CORE_SO" 2>/dev/null || true
+          fi
+          echo "✓ Built dist/Sabbel.app"
 
       - name: Verify bundle is standalone
         run: |
