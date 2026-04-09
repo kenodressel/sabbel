@@ -60,9 +60,16 @@ jobs:
           test -d dist/Sabbel.app/Contents/MacOS
           test -f dist/Sabbel.app/Contents/Info.plist
           test -f dist/Sabbel.app/Contents/Frameworks/mlx.metallib
-          test -f dist/Sabbel.app/Contents/Frameworks/libpython3.13.dylib \
-            && echo "✓ libpython embedded (standalone)" \
-            || { echo "✗ libpython NOT embedded (semi-standalone)"; exit 1; }
+          # Framework Python embeds Python.framework, non-framework embeds libpython
+          if [ -f dist/Sabbel.app/Contents/Frameworks/libpython3.13.dylib ] || \
+             [ -d dist/Sabbel.app/Contents/Frameworks/Python.framework ]; then
+            echo "✓ Python embedded (standalone)"
+          else
+            echo "✗ Python NOT embedded (semi-standalone)"
+            echo "Contents of Frameworks/:"
+            ls -la dist/Sabbel.app/Contents/Frameworks/
+            exit 1
+          fi
           # Check no absolute paths leak
           LEAKS=$(find dist/Sabbel.app \( -name "*.dylib" -o -name "*.so" \) \
             -exec otool -L {} \; 2>/dev/null \
