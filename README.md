@@ -29,12 +29,42 @@ On first launch, macOS will ask for **Accessibility** and **Microphone** permiss
 ## Auto-Start on Login
 
 ```bash
+make build-app           # Build local FlowSpeak.app
+make install-app         # Install FlowSpeak.app into ~/Applications
 make autostart          # Enable — starts now + on every login
 make stop               # Stop
 make restart             # Restart
 make autostart-remove   # Disable auto-start
 make status              # Check if running
 ```
+
+`make autostart` now installs and launches `~/Applications/FlowSpeak.app`, so macOS permission dialogs
+and login-item startup use the app identity instead of `python3.x`.
+
+## Signing And Distribution
+
+For local development, the default build uses ad-hoc signing:
+
+```bash
+make show-signing
+make install-app
+```
+
+That is fine for development on one machine, but macOS may treat rebuilt apps as a new identity for
+Accessibility/TCC purposes.
+
+For a smoother rollout to other Macs, build and sign the `.app` once with a stable signing identity:
+
+```bash
+SIGNING_IDENTITY="Developer ID Application: Your Name (TEAMID)" make install-app
+```
+
+Important behavior:
+
+- Users do not need to create their own key if you distribute the signed `.app` you built.
+- If users build the app locally themselves, they are creating a different app identity and may get fresh permission prompts.
+- Accessibility and Microphone permission still must be approved once per Mac by the user. That cannot be pre-granted by the app.
+- Keeping the same bundle identifier and signing identity across updates is what prevents repeated permission churn.
 
 ## Custom Dictionary
 
