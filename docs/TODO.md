@@ -130,4 +130,3 @@ When the focused app doesn't accept Cmd+V (e.g. locked fields, full-screen games
 Remaining items for distributing to other Macs:
 - **Notarization** — required for distribution outside App Store
 - **Auto-update mechanism** — check for new versions, pull + rebuild
-- **Model download UX** — first-run progress indicator for the ~1.5GB Whisper model download
