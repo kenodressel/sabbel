@@ -1,5 +1,20 @@
 import logging
+import os
+import sys
 from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# Frozen-app detection: when running inside a py2app .app bundle, tell MLX
+# where to find its Metal shader library before anything imports mlx.
+# ---------------------------------------------------------------------------
+if getattr(sys, "frozen", False):
+    _bundle_dir = os.path.normpath(
+        os.path.join(os.path.dirname(sys.executable), "..", "Frameworks")
+    )
+    _metallib = os.path.join(_bundle_dir, "mlx.metallib")
+    if os.path.isfile(_metallib):
+        os.environ.setdefault("MLX_METAL_LIB_PATH", _metallib)
+
 import Quartz  # Eager import to prevent pyobjc race condition
 
 from sabbel.app import SabbelApp

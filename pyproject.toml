@@ -16,6 +16,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0"]
+build = ["py2app>=0.28.8", "setuptools<81"]
 
 [project.scripts]
 sabbel = "sabbel.__main__:main"

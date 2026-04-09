@@ -1,0 +1,43 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: macos-14  # Apple Silicon M1
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        run: uv sync --extra build
+
+      - name: Build Sabbel.app
+        run: make build-app
+
+      - name: Verify bundle
+        run: |
+          test -d dist/Sabbel.app/Contents/MacOS
+          test -f dist/Sabbel.app/Contents/Info.plist
+          test -f dist/Sabbel.app/Contents/Frameworks/mlx.metallib
+          echo "✓ Bundle structure verified"
+
+      - name: Zip the app
+        run: |
+          cd dist
+          ditto -ck --keepParent Sabbel.app Sabbel.zip
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/Sabbel.zip
+          generate_release_notes: true

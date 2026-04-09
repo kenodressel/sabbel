@@ -6,3 +6,4 @@ build/
 .pytest_cache/
 .venv/
 .claude/
+icons/Sabbel.icns
