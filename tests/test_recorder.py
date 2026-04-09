@@ -77,3 +77,15 @@ def test_close_without_stream_is_noop():
     recorder = AudioRecorder.__new__(AudioRecorder)
     recorder._stream = None
     recorder.close()
+
+
+def test_has_speech_accepts_quiet_voice_level_audio():
+    recorder = AudioRecorder.__new__(AudioRecorder)
+    audio = np.full(16000, 0.005, dtype=np.float32)
+    assert recorder.has_speech(audio) is True
+
+
+def test_has_speech_rejects_near_silence():
+    recorder = AudioRecorder.__new__(AudioRecorder)
+    audio = np.full(16000, 0.001, dtype=np.float32)
+    assert recorder.has_speech(audio) is False

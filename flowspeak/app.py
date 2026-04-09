@@ -168,6 +168,7 @@ class FlowSpeakApp(rumps.App):
 
     def _on_recording_start(self):
         """Called from pynput thread."""
+        logging.info("Recording start requested")
         try:
             self._recorder.start()
         except sd.PortAudioError as exc:
@@ -178,6 +179,7 @@ class FlowSpeakApp(rumps.App):
 
     def _on_recording_stop(self):
         """Called from pynput thread."""
+        logging.info("Recording stop requested")
         self._recorder.stop()
         callAfter(self._set_working)
         self._transcribe_event.set()
@@ -190,12 +192,13 @@ class FlowSpeakApp(rumps.App):
     def _set_working(self):
         self._stop_spinner()
         self._spinner_index = 0
+        self.title = _SPINNER[0]
         self._spinner_timer = rumps.Timer(self._spin, 0.15)
         self._spinner_timer.start()
 
     def _spin(self, timer):
-        self.title = _SPINNER[self._spinner_index % len(_SPINNER)]
-        self._spinner_index += 1
+        self._spinner_index = (self._spinner_index + 1) % len(_SPINNER)
+        self.title = _SPINNER[self._spinner_index]
 
     def _stop_spinner(self):
         if self._spinner_timer and self._spinner_timer.is_alive():
@@ -215,12 +218,25 @@ class FlowSpeakApp(rumps.App):
             initial_prompt = get_initial_prompt(self._dictionary)
 
             audio = self._recorder.get_audio()
+            audio_samples = len(audio)
+            audio_duration = audio_samples / 16000 if audio_samples else 0.0
+            audio_rms = (
+                float(np.sqrt(np.mean(audio ** 2))) if audio_samples else 0.0
+            )
+            logging.info(
+                "Processing recording: samples=%s duration=%.3fs rms=%.5f",
+                audio_samples,
+                audio_duration,
+                audio_rms,
+            )
 
             if not self._recorder.is_valid_duration(audio):
+                logging.info("Recording rejected: too short")
                 callAfter(lambda: self._show_error("Zu kurz"))
                 continue
 
             if not self._recorder.has_speech(audio):
+                logging.info("Recording rejected: no speech detected")
                 callAfter(lambda: self._show_error("Kein Audio"))
                 continue
 
@@ -236,6 +252,7 @@ class FlowSpeakApp(rumps.App):
                 continue
 
             if not text:
+                logging.info("Recording rejected: empty transcription")
                 callAfter(lambda: self._show_error("Nicht erkannt"))
                 continue
 
@@ -244,6 +261,7 @@ class FlowSpeakApp(rumps.App):
             if replacements:
                 text = apply_replacements(text, replacements)
 
+            logging.info("Transcription succeeded: chars=%s", len(text))
             callAfter(lambda t=text: self._do_inject(t))
 
     def _do_inject(self, text: str):

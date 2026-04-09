@@ -1,4 +1,4 @@
-import threading
+import logging
 from pynput.keyboard import Key, Listener
 
 
@@ -24,10 +24,12 @@ class HotkeyManager:
 
     def _on_press(self, key, *args):
         if key == Key.alt_r and not self._recording:
+            logging.info("Hotkey press detected")
             self._recording = True
             self._on_start()
 
     def _on_release(self, key, *args):
         if key == Key.alt_r and self._recording:
+            logging.info("Hotkey release detected")
             self._recording = False
             self._on_stop()
