@@ -48,3 +48,32 @@ def test_get_audio_clears_queue():
 
     _ = recorder.get_audio()
     assert recorder._queue.empty()
+
+
+@patch("flowspeak.recorder.sd.InputStream")
+def test_start_initializes_stream_lazily(mock_input_stream):
+    recorder = AudioRecorder.__new__(AudioRecorder)
+    recorder._queue = __import__("queue").Queue()
+    recorder._min_samples = 8000
+    recorder._stream = None
+
+    stream = MagicMock()
+    mock_input_stream.return_value = stream
+
+    recorder.start()
+
+    mock_input_stream.assert_called_once()
+    stream.start.assert_called_once()
+    assert recorder._stream is stream
+
+
+def test_stop_without_stream_is_noop():
+    recorder = AudioRecorder.__new__(AudioRecorder)
+    recorder._stream = None
+    recorder.stop()
+
+
+def test_close_without_stream_is_noop():
+    recorder = AudioRecorder.__new__(AudioRecorder)
+    recorder._stream = None
+    recorder.close()

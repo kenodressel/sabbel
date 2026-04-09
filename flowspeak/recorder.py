@@ -13,13 +13,7 @@ class AudioRecorder:
     def __init__(self, min_duration_seconds: float = 0.5):
         self._queue: queue.Queue[np.ndarray] = queue.Queue()
         self._min_samples = int(min_duration_seconds * SAMPLE_RATE)
-        self._stream = sd.InputStream(
-            samplerate=SAMPLE_RATE,
-            channels=CHANNELS,
-            dtype=DTYPE,
-            blocksize=BLOCK_SIZE,
-            callback=self._audio_callback,
-        )
+        self._stream: sd.InputStream | None = None
 
     def _audio_callback(self, indata: np.ndarray, frames: int, time_info, status):
         if status:
@@ -29,10 +23,19 @@ class AudioRecorder:
     def start(self):
         while not self._queue.empty():
             self._queue.get()
+        if self._stream is None:
+            self._stream = sd.InputStream(
+                samplerate=SAMPLE_RATE,
+                channels=CHANNELS,
+                dtype=DTYPE,
+                blocksize=BLOCK_SIZE,
+                callback=self._audio_callback,
+            )
         self._stream.start()
 
     def stop(self):
-        self._stream.stop()
+        if self._stream is not None and self._stream.active:
+            self._stream.stop()
 
     def get_audio(self) -> np.ndarray:
         chunks = []
@@ -57,4 +60,8 @@ class AudioRecorder:
         return rms > rms_threshold
 
     def close(self):
-        self._stream.close()
+        if self._stream is not None:
+            if self._stream.active:
+                self._stream.stop()
+            self._stream.close()
+            self._stream = None

@@ -3,6 +3,7 @@ import threading
 from pathlib import Path
 import numpy as np
 import rumps
+import sounddevice as sd
 from PyObjCTools.AppHelper import callAfter
 
 from flowspeak.config import FlowSpeakConfig, load_config
@@ -133,7 +134,12 @@ class FlowSpeakApp(rumps.App):
 
     def _on_recording_start(self):
         """Called from pynput thread."""
-        self._recorder.start()
+        try:
+            self._recorder.start()
+        except sd.PortAudioError as exc:
+            print(f"Recorder error: {exc}")
+            callAfter(lambda: self._show_error("Mikrofonfehler"))
+            return
         callAfter(self._set_recording)
 
     def _on_recording_stop(self):
@@ -148,6 +154,7 @@ class FlowSpeakApp(rumps.App):
         self.title = "🔴"
 
     def _set_working(self):
+        self._stop_spinner()
         self._spinner_index = 0
         self._spinner_timer = rumps.Timer(self._spin, 0.15)
         self._spinner_timer.start()
@@ -217,7 +224,9 @@ class FlowSpeakApp(rumps.App):
         self._running = False
         self._stop_spinner()
         self._stop_error_timer()
-        self._transcribe_event.set()
         self._hotkey.stop()
+        self._transcribe_event.set()
+        if self._worker_thread is not None and self._worker_thread.is_alive():
+            self._worker_thread.join(timeout=1.0)
         self._recorder.close()
         super().terminate_(sender)
