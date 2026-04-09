@@ -1,10 +1,10 @@
 from pathlib import Path
 
-from flowspeak.single_instance import SingleInstanceLock
+from sabbel.single_instance import SingleInstanceLock
 
 
 def test_single_instance_lock_blocks_second_acquire(tmp_path: Path):
-    lock_path = tmp_path / "flowspeak.lock"
+    lock_path = tmp_path / "sabbel.lock"
     first = SingleInstanceLock(lock_path)
     second = SingleInstanceLock(lock_path)
 

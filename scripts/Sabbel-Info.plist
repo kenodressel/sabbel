@@ -6,17 +6,17 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleDisplayName</key>
-    <string>FlowSpeak</string>
+    <string>Sabbel</string>
     <key>CFBundleExecutable</key>
-    <string>FlowSpeak</string>
+    <string>Sabbel</string>
     <key>CFBundleIconFile</key>
-    <string>FlowSpeak.icns</string>
+    <string>Sabbel.icns</string>
     <key>CFBundleIdentifier</key>
-    <string>com.flowspeak.app</string>
+    <string>com.sabbel.app</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>FlowSpeak</string>
+    <string>Sabbel</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -28,6 +28,6 @@
     <key>LSUIElement</key>
     <true/>
     <key>NSMicrophoneUsageDescription</key>
-    <string>FlowSpeak needs microphone access to transcribe your speech locally.</string>
+    <string>Sabbel needs microphone access to transcribe your speech locally.</string>
 </dict>
 </plist>

@@ -6,22 +6,22 @@ import rumps
 import sounddevice as sd
 from PyObjCTools.AppHelper import callAfter
 
-from flowspeak.config import FlowSpeakConfig, load_config
-from flowspeak.recorder import AudioRecorder
-from flowspeak.transcriber import TranscriptionEngine
-from flowspeak.hotkey import HotkeyManager
-from flowspeak.injector import inject_text
-from flowspeak.dictionary import load_dictionary, apply_replacements, get_initial_prompt
-from flowspeak.permissions import check_accessibility, check_microphone
+from sabbel.config import SabbelConfig, load_config
+from sabbel.recorder import AudioRecorder
+from sabbel.transcriber import TranscriptionEngine
+from sabbel.hotkey import HotkeyManager
+from sabbel.injector import inject_text
+from sabbel.dictionary import load_dictionary, apply_replacements, get_initial_prompt
+from sabbel.permissions import check_accessibility, check_microphone
 
 # Spinner frames for processing animation
 _SPINNER = ["◐", "◓", "◑", "◒"]
 
 
-class FlowSpeakApp(rumps.App):
-    def __init__(self, config: FlowSpeakConfig):
+class SabbelApp(rumps.App):
+    def __init__(self, config: SabbelConfig):
         super().__init__(
-            name="FlowSpeak",
+            name="Sabbel",
             title="🎙",
             icon=None,
             template=False,
@@ -150,7 +150,7 @@ class FlowSpeakApp(rumps.App):
     def _show_error(self, message: str):
         """Show error in menu bar, auto-clear after 2 seconds."""
         self._stop_spinner()
-        logging.error("FlowSpeak error: %s", message)
+        logging.error("Sabbel error: %s", message)
         self._set_status(message)
         self.title = f"⚠️ {message}"
         # Restart the error timer
@@ -161,7 +161,7 @@ class FlowSpeakApp(rumps.App):
     def _notify_no_audio(self):
         try:
             rumps.notification(
-                title="FlowSpeak",
+                title="Sabbel",
                 subtitle="Kein Audio erkannt",
                 message="Ich habe beim letzten Versuch keine Sprache gehoert.",
                 sound=False,

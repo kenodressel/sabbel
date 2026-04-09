@@ -2,24 +2,24 @@
 #include <limits.h>
 #include <stdio.h>
 
-#ifndef FLOWSPEAK_PROJECT_DIR
-#define FLOWSPEAK_PROJECT_DIR "."
+#ifndef SABBEL_PROJECT_DIR
+#define SABBEL_PROJECT_DIR "."
 #endif
 
-#ifndef FLOWSPEAK_PYTHON_HOME
-#define FLOWSPEAK_PYTHON_HOME "/usr/local"
+#ifndef SABBEL_PYTHON_HOME
+#define SABBEL_PYTHON_HOME "/usr/local"
 #endif
 
-#ifndef FLOWSPEAK_SITE_PACKAGES
-#define FLOWSPEAK_SITE_PACKAGES "."
+#ifndef SABBEL_SITE_PACKAGES
+#define SABBEL_SITE_PACKAGES "."
 #endif
 
-#ifndef FLOWSPEAK_STDLIB
-#define FLOWSPEAK_STDLIB "."
+#ifndef SABBEL_STDLIB
+#define SABBEL_STDLIB "."
 #endif
 
-#ifndef FLOWSPEAK_DYNLOAD
-#define FLOWSPEAK_DYNLOAD "."
+#ifndef SABBEL_DYNLOAD
+#define SABBEL_DYNLOAD "."
 #endif
 
 static PyStatus append_path(PyConfig *config, const wchar_t *path) {
@@ -32,11 +32,11 @@ int main(int argc, char **argv) {
     PyConfig_InitPythonConfig(&config);
 
     wchar_t *program_name = Py_DecodeLocale(argv[0], NULL);
-    wchar_t *python_home = Py_DecodeLocale(FLOWSPEAK_PYTHON_HOME, NULL);
-    wchar_t *project_dir = Py_DecodeLocale(FLOWSPEAK_PROJECT_DIR, NULL);
-    wchar_t *site_packages = Py_DecodeLocale(FLOWSPEAK_SITE_PACKAGES, NULL);
-    wchar_t *stdlib_dir = Py_DecodeLocale(FLOWSPEAK_STDLIB, NULL);
-    wchar_t *dynload_dir = Py_DecodeLocale(FLOWSPEAK_DYNLOAD, NULL);
+    wchar_t *python_home = Py_DecodeLocale(SABBEL_PYTHON_HOME, NULL);
+    wchar_t *project_dir = Py_DecodeLocale(SABBEL_PROJECT_DIR, NULL);
+    wchar_t *site_packages = Py_DecodeLocale(SABBEL_SITE_PACKAGES, NULL);
+    wchar_t *stdlib_dir = Py_DecodeLocale(SABBEL_STDLIB, NULL);
+    wchar_t *dynload_dir = Py_DecodeLocale(SABBEL_DYNLOAD, NULL);
 
     if (
         program_name == NULL || python_home == NULL || project_dir == NULL ||
@@ -93,7 +93,7 @@ int main(int argc, char **argv) {
     PyMem_RawFree(dynload_dir);
 
     int rc = PyRun_SimpleString(
-        "from flowspeak.__main__ import main\n"
+        "from sabbel.__main__ import main\n"
         "raise SystemExit(main())\n"
     );
 

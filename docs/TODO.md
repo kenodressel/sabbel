@@ -1,4 +1,4 @@
-# FlowSpeak — Future Work & Research Notes
+# Sabbel — Future Work & Research Notes
 
 ## Current State (v0.1.0)
 
@@ -10,7 +10,11 @@ Working features:
 - Dictionary hot-reload (edit while running)
 - Menu bar app with recording/transcribing states
 - Clipboard-preserving text injection via CGEvent
-- Accessibility permission dialog on first run
+- Accessibility + Microphone permission handling on first run
+- Native .app bundle with C launcher (no py2app/PyInstaller)
+- Code signing support (ad-hoc or Developer ID)
+- LaunchAgent auto-start on login
+- "No audio" notification when no speech detected
 
 Known issues:
 - Whisper sometimes hallucinates repeated words on short/noisy audio
@@ -107,42 +111,9 @@ Whisper sometimes produces repeated text ("CR CR CR CR...") on:
 
 ---
 
-## Planned: Packaging for Distribution
+## Planned: Distribution Polish
 
-Options for shipping FlowSpeak as a standalone macOS app:
-
-**py2app** (recommended):
-- Creates a proper .app bundle with Info.plist
-- Handles Accessibility/Microphone permission dialogs natively
-- Can include the Whisper model in the bundle or download on first run
-- `NSMicrophoneUsageDescription` in Info.plist for mic permission dialog
-
-**PyInstaller**:
-- Cross-platform, but less native on macOS
-- Can produce a single .app bundle
-- May need manual Info.plist configuration
-
-**Considerations**:
-- Model download (~1.5GB) — bundle it or download on first run?
-- Code signing — required for Accessibility permission to work properly
-- Notarization — required for distribution outside App Store
-- Auto-update mechanism
-- Icon design (proper .icns file)
-
----
-
-## Dictionary Feature Details
-
-**Two layers**:
-
-1. **`initial_prompt`**: Biases Whisper toward domain vocabulary. Written as natural sentences, not word lists. 224 token limit (~150-200 words). Put high-priority terms at the end.
-
-2. **`[replacements]`**: Post-transcription regex find-and-replace. Case-insensitive. Applied after Whisper output, before paste.
-
-**Best practices for initial_prompt**:
-- Write example sentences, not just word lists
-- Match the domain you'll be dictating about
-- Code-switch in the prompt if you code-switch when speaking: "Im Sprint-Planning haben wir die OKRs reviewed"
-- Put important terms at the end (higher attention weight)
-
-**Wispr Flow comparison**: They do the same two-layer approach — server-side vocabulary bias + client-side string replacement. Their "dictionary" feature maps to our `[replacements]` section.
+Remaining items for distributing to other Macs:
+- **Notarization** — required for distribution outside App Store
+- **Auto-update mechanism** — check for new versions, pull + rebuild
+- **Model download UX** — first-run progress indicator for the ~1.5GB Whisper model download

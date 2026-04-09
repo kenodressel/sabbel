@@ -6,7 +6,7 @@ import threading
 from pathlib import Path
 
 
-_DICT_PATH = Path.home() / ".config" / "flowspeak" / "dictionary.toml"
+_DICT_PATH = Path.home() / ".config" / "sabbel" / "dictionary.toml"
 _lock = threading.Lock()
 
 

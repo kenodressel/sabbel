@@ -4,7 +4,7 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.flowspeak.agent</string>
+    <string>com.sabbel.agent</string>
     <key>ProgramArguments</key>
     <array>
         <string>/usr/bin/open</string>
@@ -16,8 +16,8 @@
     <key>RunAtLoad</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>/tmp/flowspeak.log</string>
+    <string>/tmp/sabbel.log</string>
     <key>StandardErrorPath</key>
-    <string>/tmp/flowspeak.log</string>
+    <string>/tmp/sabbel.log</string>
 </dict>
 </plist>

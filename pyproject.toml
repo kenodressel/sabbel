@@ -1,7 +1,7 @@
 [project]
-name = "flowspeak"
+name = "sabbel"
 version = "0.1.0"
-description = "Local voice dictation for macOS"
+description = "Lokale Spracherkennung fuer macOS"
 requires-python = ">=3.10"
 dependencies = [
     "mlx-whisper>=0.4.0",
@@ -18,10 +18,10 @@ dependencies = [
 dev = ["pytest>=7.0"]
 
 [project.scripts]
-flowspeak = "flowspeak.__main__:main"
+sabbel = "sabbel.__main__:main"
 
 [tool.setuptools.packages.find]
-include = ["flowspeak*"]
+include = ["sabbel*"]
 
 [build-system]
 requires = ["setuptools>=68.0"]

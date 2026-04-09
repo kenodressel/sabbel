@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 from unittest.mock import patch, MagicMock
-from flowspeak.recorder import AudioRecorder
+from sabbel.recorder import AudioRecorder
 
 
 def test_get_audio_empty():
@@ -50,7 +50,7 @@ def test_get_audio_clears_queue():
     assert recorder._queue.empty()
 
 
-@patch("flowspeak.recorder.sd.InputStream")
+@patch("sabbel.recorder.sd.InputStream")
 def test_start_initializes_stream_lazily(mock_input_stream):
     recorder = AudioRecorder.__new__(AudioRecorder)
     recorder._queue = __import__("queue").Queue()

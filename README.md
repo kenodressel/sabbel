@@ -1,8 +1,8 @@
-# FlowSpeak
+# Sabbel
 
-Local voice dictation for macOS. Hold a key, speak, release — text appears.
+Lokale Spracherkennung fuer macOS. Taste halten, sprechen, loslassen — Text erscheint.
 
-Runs entirely on your Mac using Apple Silicon GPU. No cloud, no subscription, works offline.
+Laeuft komplett auf deinem Mac mit Apple Silicon GPU. Keine Cloud, kein Abo, funktioniert offline.
 
 ## Quick Start
 
@@ -13,7 +13,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 # Clone and run
 git clone https://github.com/kenodressel/wispr-flow-clone
 cd wispr-flow-clone
-uv run flowspeak
+uv run sabbel
 ```
 
 First run installs dependencies and downloads the Whisper model (~1.5GB). Subsequent runs start in under a second.
@@ -29,8 +29,8 @@ On first launch, macOS will ask for **Accessibility** and **Microphone** permiss
 ## Auto-Start on Login
 
 ```bash
-make build-app           # Build local FlowSpeak.app
-make install-app         # Install FlowSpeak.app into ~/Applications
+make build-app           # Build local Sabbel.app
+make install-app         # Install Sabbel.app into ~/Applications
 make reinstall-app       # Force a fresh install if bundle/launcher changed
 make autostart          # Enable — starts now + on every login
 make stop               # Stop
@@ -39,13 +39,13 @@ make autostart-remove   # Disable auto-start
 make status              # Check if running
 ```
 
-`make autostart` now installs and launches `~/Applications/FlowSpeak.app`, so macOS permission dialogs
+`make autostart` now installs and launches `~/Applications/Sabbel.app`, so macOS permission dialogs
 and login-item startup use the app identity instead of `python3.x`.
 
 Important for local development:
 
-- The installed `FlowSpeak.app` launcher already loads Python code from this workspace.
-- That means normal edits to files in `flowspeak/` only need `make restart`.
+- The installed `Sabbel.app` launcher already loads Python code from this workspace.
+- That means normal edits to files in `sabbel/` only need `make restart`.
 - Reinstalling the app bundle can cause macOS Accessibility/Microphone permissions to be asked again.
 - Only use `make reinstall-app` when the app bundle itself changed, for example launcher code, bundle metadata, or packaged resources.
 
@@ -80,7 +80,7 @@ Important behavior:
 make setup-dictionary   # Opens the dictionary file in your editor
 ```
 
-Or edit `~/.config/flowspeak/dictionary.toml` directly:
+Or edit `~/.config/sabbel/dictionary.toml` directly:
 
 ```toml
 [initial_prompt]
@@ -97,7 +97,7 @@ Changes are picked up on the next dictation — no restart needed.
 
 ## Configuration
 
-Create `~/.config/flowspeak/config.toml`:
+Create `~/.config/sabbel/config.toml`:
 
 ```toml
 [general]
@@ -118,7 +118,7 @@ min_duration_seconds = 0.5
 ## Logs
 
 ```bash
-tail -f /tmp/flowspeak.log
+tail -f /tmp/sabbel.log
 ```
 
 ## License

@@ -4,7 +4,7 @@ import tomllib
 
 
 @dataclass
-class FlowSpeakConfig:
+class SabbelConfig:
     language: str = "de"
     model_repo: str = "mlx-community/whisper-large-v3-turbo"
     min_duration_seconds: float = 0.5
@@ -20,14 +20,14 @@ _TOML_MAP = {
     ("injection", "post_paste_delay"): "post_paste_delay",
 }
 
-_VALID_FIELDS = {f.name for f in fields(FlowSpeakConfig)}
+_VALID_FIELDS = {f.name for f in fields(SabbelConfig)}
 
 
-def load_config(path: Path | None = None) -> FlowSpeakConfig:
+def load_config(path: Path | None = None) -> SabbelConfig:
     if path is None:
-        path = Path.home() / ".config" / "flowspeak" / "config.toml"
+        path = Path.home() / ".config" / "sabbel" / "config.toml"
     if not path.exists():
-        return FlowSpeakConfig()
+        return SabbelConfig()
 
     with open(path, "rb") as f:
         data = tomllib.load(f)
@@ -37,4 +37,4 @@ def load_config(path: Path | None = None) -> FlowSpeakConfig:
         if section in data and key in data[section]:
             overrides[field_name] = data[section][key]
 
-    return FlowSpeakConfig(**overrides)
+    return SabbelConfig(**overrides)

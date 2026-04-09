@@ -1,9 +1,9 @@
 import pytest
-from flowspeak.config import FlowSpeakConfig, load_config
+from sabbel.config import SabbelConfig, load_config
 
 
 def test_default_config():
-    cfg = FlowSpeakConfig()
+    cfg = SabbelConfig()
     assert cfg.language == "de"
     assert cfg.model_repo == "mlx-community/whisper-large-v3-turbo"
     assert cfg.min_duration_seconds == 0.5

@@ -2,12 +2,12 @@ import logging
 from pathlib import Path
 import Quartz  # Eager import to prevent pyobjc race condition
 
-from flowspeak.app import FlowSpeakApp
-from flowspeak.config import load_config
-from flowspeak.single_instance import SingleInstanceLock
+from sabbel.app import SabbelApp
+from sabbel.config import load_config
+from sabbel.single_instance import SingleInstanceLock
 
 
-LOG_PATH = Path("/tmp/flowspeak-runtime.log")
+LOG_PATH = Path("/tmp/sabbel-runtime.log")
 
 
 def setup_logging() -> None:
@@ -20,24 +20,24 @@ def setup_logging() -> None:
 
 def main():
     setup_logging()
-    lock = SingleInstanceLock(Path("/tmp/flowspeak.lock"))
+    lock = SingleInstanceLock(Path("/tmp/sabbel.lock"))
     if not lock.acquire():
-        logging.info("FlowSpeak is already running. Exiting.")
+        logging.info("Sabbel is already running. Exiting.")
         return 0
 
-    logging.info("FlowSpeak starting")
+    logging.info("Sabbel starting")
     config = load_config()
     try:
-        app = FlowSpeakApp(config)
+        app = SabbelApp(config)
     except Exception as exc:
-        logging.exception("Failed to initialize FlowSpeak")
+        logging.exception("Failed to initialize Sabbel")
         lock.release()
         return 1
 
     try:
         app.run()
     finally:
-        logging.info("FlowSpeak shutting down")
+        logging.info("Sabbel shutting down")
         lock.release()
 
 
