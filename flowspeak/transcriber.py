@@ -1,5 +1,10 @@
 import numpy as np
-import mlx_whisper
+
+
+def _load_mlx_whisper():
+    import mlx_whisper
+
+    return mlx_whisper
 
 
 class TranscriptionEngine:
@@ -10,6 +15,12 @@ class TranscriptionEngine:
     ):
         self._model_repo = model_repo
         self._min_samples = min_samples
+        self._mlx_whisper = None
+
+    def _whisper(self):
+        if self._mlx_whisper is None:
+            self._mlx_whisper = _load_mlx_whisper()
+        return self._mlx_whisper
 
     def transcribe(self, audio: np.ndarray, language: str | None = "de", initial_prompt: str | None = None) -> str:
         if len(audio) < self._min_samples:
@@ -21,7 +32,7 @@ class TranscriptionEngine:
         if initial_prompt:
             kwargs["initial_prompt"] = initial_prompt
 
-        result = mlx_whisper.transcribe(audio, **kwargs)
+        result = self._whisper().transcribe(audio, **kwargs)
         text = result["text"].strip()
         return text if text else ""
 
