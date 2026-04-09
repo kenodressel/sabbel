@@ -1,5 +1,9 @@
 <p align="center">
-  <img src="icons/mic_idle.png" width="120" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="icons/sabbel-logo.svg" />
+    <source media="(prefers-color-scheme: light)" srcset="icons/sabbel-logo-dark.svg" />
+    <img src="icons/sabbel-logo.svg" width="120" alt="Sabbel logo" />
+  </picture>
 </p>
 
 <h1 align="center">Sabbel</h1>

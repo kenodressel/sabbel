@@ -12,18 +12,18 @@ LAUNCH_SERVICE = $(LAUNCH_DOMAIN)/$(PLIST_NAME)
 run: ## Start Sabbel (foreground)
 	uv run sabbel
 
-icons/Sabbel.icns: icons/mic_idle.png ## Generate app icon from mic_idle.png
+icons/Sabbel.icns: icons/sabbel-icon.png ## Generate app icon from sabbel-icon.png
 	@mkdir -p build/Sabbel.iconset
-	@cp icons/mic_idle.png build/Sabbel.iconset/icon_16x16.png
-	@sips -z 32 32 icons/mic_idle.png --out build/Sabbel.iconset/icon_16x16@2x.png >/dev/null
-	@sips -z 32 32 icons/mic_idle.png --out build/Sabbel.iconset/icon_32x32.png >/dev/null
-	@sips -z 64 64 icons/mic_idle.png --out build/Sabbel.iconset/icon_32x32@2x.png >/dev/null
-	@sips -z 128 128 icons/mic_idle.png --out build/Sabbel.iconset/icon_128x128.png >/dev/null
-	@sips -z 256 256 icons/mic_idle.png --out build/Sabbel.iconset/icon_128x128@2x.png >/dev/null
-	@sips -z 256 256 icons/mic_idle.png --out build/Sabbel.iconset/icon_256x256.png >/dev/null
-	@sips -z 512 512 icons/mic_idle.png --out build/Sabbel.iconset/icon_256x256@2x.png >/dev/null
-	@sips -z 512 512 icons/mic_idle.png --out build/Sabbel.iconset/icon_512x512.png >/dev/null
-	@cp build/Sabbel.iconset/icon_512x512.png build/Sabbel.iconset/icon_512x512@2x.png
+	@cp icons/sabbel-icon.png build/Sabbel.iconset/icon_512x512@2x.png
+	@sips -z 512 512 icons/sabbel-icon.png --out build/Sabbel.iconset/icon_512x512.png >/dev/null
+	@sips -z 256 256 icons/sabbel-icon.png --out build/Sabbel.iconset/icon_256x256@2x.png >/dev/null
+	@sips -z 256 256 icons/sabbel-icon.png --out build/Sabbel.iconset/icon_256x256.png >/dev/null
+	@sips -z 128 128 icons/sabbel-icon.png --out build/Sabbel.iconset/icon_128x128@2x.png >/dev/null
+	@sips -z 128 128 icons/sabbel-icon.png --out build/Sabbel.iconset/icon_128x128.png >/dev/null
+	@sips -z 64 64 icons/sabbel-icon.png --out build/Sabbel.iconset/icon_32x32@2x.png >/dev/null
+	@sips -z 32 32 icons/sabbel-icon.png --out build/Sabbel.iconset/icon_32x32.png >/dev/null
+	@sips -z 32 32 icons/sabbel-icon.png --out build/Sabbel.iconset/icon_16x16@2x.png >/dev/null
+	@sips -z 16 16 icons/sabbel-icon.png --out build/Sabbel.iconset/icon_16x16.png >/dev/null
 	@iconutil -c icns build/Sabbel.iconset -o icons/Sabbel.icns
 
 build-app: icons/Sabbel.icns ## Build standalone Sabbel.app with py2app
