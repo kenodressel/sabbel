@@ -14,14 +14,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install Python from python.org
+        run: |
+          curl -fsSL https://www.python.org/ftp/python/3.13.3/python-3.13.3-macos11.pkg -o /tmp/python.pkg
+          sudo installer -pkg /tmp/python.pkg -target /
+          echo "/Library/Frameworks/Python.framework/Versions/3.13/bin" >> $GITHUB_PATH
+
       - name: Install uv
         uses: astral-sh/setup-uv@v4
 
-      - name: Install Python via uv
-        run: uv python install 3.13
-
       - name: Install dependencies
-        run: uv sync --extra build --extra dev
+        run: uv sync --extra build --extra dev --python /Library/Frameworks/Python.framework/Versions/3.13/bin/python3.13
 
       - name: Run tests
         run: uv run pytest tests/ -v
