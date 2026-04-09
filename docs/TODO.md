@@ -111,6 +111,20 @@ Whisper sometimes produces repeated text ("CR CR CR CR...") on:
 
 ---
 
+## Planned: Paste Fallback — Keep Text in Clipboard
+
+When the focused app doesn't accept Cmd+V (e.g. locked fields, full-screen games, certain Electron apps), the transcribed text is lost because the clipboard gets restored immediately after the paste attempt.
+
+**Desired behavior**: Detect whether the paste actually succeeded. If it didn't, leave the transcribed text in the clipboard so the user can manually paste it later. Show a notification like "Text im Clipboard — Paste fehlgeschlagen".
+
+**Approaches to investigate**:
+- Check if the focused element accepts keyboard input (AXRole check via Accessibility API)
+- Compare clipboard contents before/after the paste delay — if unchanged, the app likely consumed it; if still there, paste may have failed
+- Longer `post_paste_delay` as a simpler heuristic
+- Skip clipboard restore entirely and always leave text in clipboard (simplest, but changes current behavior)
+
+---
+
 ## Planned: Distribution Polish
 
 Remaining items for distributing to other Macs:
