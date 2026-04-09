@@ -19,7 +19,24 @@ sys.modules.setdefault(
     ),
 )
 
-from sabbel.app import SabbelApp
+from sabbel.app import SabbelApp, _language_menu_title, _normalize_language
+
+
+def test_normalize_language_accepts_supported_values():
+    assert _normalize_language("de") == "de"
+    assert _normalize_language("en") == "en"
+
+
+def test_normalize_language_falls_back_to_auto_for_unknown_values():
+    assert _normalize_language(None) is None
+    assert _normalize_language("auto") is None
+    assert _normalize_language("fr") is None
+
+
+def test_language_menu_title_matches_language():
+    assert _language_menu_title(None) == "Sprache: Auto"
+    assert _language_menu_title("de") == "Sprache: Deutsch"
+    assert _language_menu_title("en") == "Sprache: English"
 
 
 @patch("sabbel.app.time.sleep")

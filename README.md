@@ -19,7 +19,8 @@
   <a href="#how-it-works">How It Works</a> •
   <a href="#configuration">Configuration</a> •
   <a href="#custom-dictionary">Custom Dictionary</a> •
-  <a href="#development">Development</a>
+  <a href="#development">Development</a> •
+  <a href="#contributing">Contributing</a>
 </p>
 
 ---
@@ -116,6 +117,19 @@ uv run pytest            # Run tests
 make build-app           # Build standalone .app with py2app
 make install-app         # Build + install to ~/Applications
 ```
+
+## Contributing
+
+Contributors are very welcome.
+
+If you want to help, start with [docs/TODO.md](docs/TODO.md). It tracks the roadmap, research notes, and the areas that are most useful right now, including:
+
+- auto-learning corrections via Accessibility APIs
+- optional local LLM post-processing
+- Whisper hallucination handling
+- distribution polish like notarization and update UX
+
+Small fixes, focused experiments, and implementation PRs are all useful. If you pick up one of the TODO items, mention it in your PR so work does not overlap unnecessarily.
 
 ## How It's Built
 

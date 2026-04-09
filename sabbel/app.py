@@ -6,7 +6,7 @@ import rumps
 import sounddevice as sd
 from PyObjCTools.AppHelper import callAfter
 
-from sabbel.config import SabbelConfig, load_config
+from sabbel.config import SabbelConfig
 from sabbel.recorder import AudioRecorder
 from sabbel.transcriber import TranscriptionEngine
 from sabbel.hotkey import HotkeyManager
@@ -16,6 +16,20 @@ from sabbel.permissions import check_accessibility, check_microphone
 
 # Spinner frames for processing animation
 _SPINNER = ["◐", "◓", "◑", "◒"]
+
+
+def _normalize_language(language: str | None) -> str | None:
+    if language in {"de", "en"}:
+        return language
+    return None
+
+
+def _language_menu_title(language: str | None) -> str:
+    if language == "de":
+        return "Sprache: Deutsch"
+    if language == "en":
+        return "Sprache: English"
+    return "Sprache: Auto"
 
 
 class SabbelApp(rumps.App):
@@ -28,14 +42,14 @@ class SabbelApp(rumps.App):
             quit_button="Quit",
         )
         self._config = config
-        self._language = None  # Auto-detect by default
+        self._language = _normalize_language(config.language)
 
         # Dictionary
         self._dictionary = load_dictionary()
 
         # Menu — language cycle: Auto → Deutsch → English → Auto
         self._status_item = rumps.MenuItem("Status: Starte")
-        self._lang_item = rumps.MenuItem("Sprache: Auto")
+        self._lang_item = rumps.MenuItem(_language_menu_title(self._language))
         self.menu = [self._status_item, self._lang_item, None]
 
         # Components
