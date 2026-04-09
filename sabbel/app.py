@@ -87,6 +87,7 @@ class SabbelApp(rumps.App):
         # Error reset timer
         self._error_timer: rumps.Timer | None = None
         self._hotkey_started = False
+        self._model_ready = False
         self._permission_thread: threading.Thread | None = None
 
     def _cycle_language(self, sender):
@@ -103,8 +104,9 @@ class SabbelApp(rumps.App):
         )
         self._worker_thread.start()
 
-        # Warm up model
+        # Download + warm up model
         self.title = "⏳"
+        self._set_status("Modell wird geladen...")
         threading.Thread(target=self._warmup, daemon=True).start()
 
         self._permission_thread = threading.Thread(
@@ -141,6 +143,7 @@ class SabbelApp(rumps.App):
 
     def _warmup(self):
         self._transcriber.warmup()
+        self._model_ready = True
         logging.info("Whisper warmup completed")
         callAfter(self._set_idle)
 
@@ -161,6 +164,17 @@ class SabbelApp(rumps.App):
         self._stop_error_timer()
         self._error_timer = rumps.Timer(self._clear_error, 2.0)
         self._error_timer.start()
+
+    def _notify_model_loading(self):
+        try:
+            rumps.notification(
+                title="Sabbel",
+                subtitle="Modell wird noch geladen",
+                message="Bitte warte einen Moment. Das Icon wechselt zu 🎙 sobald Sabbel bereit ist.",
+                sound=False,
+            )
+        except Exception:
+            logging.exception("Failed to send model-loading notification")
 
     def _notify_no_audio(self):
         try:
@@ -183,6 +197,10 @@ class SabbelApp(rumps.App):
 
     def _on_recording_start(self):
         """Called from pynput thread."""
+        if not self._model_ready:
+            logging.info("Recording blocked: model still loading")
+            callAfter(self._notify_model_loading)
+            return
         logging.info("Recording start requested")
         try:
             self._recorder.start()
