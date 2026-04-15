@@ -29,9 +29,7 @@
 
 ---
 
-Speaking is 3-4x faster than typing. Yet most people still type their prompts to ChatGPT, Claude, and Cursor. Sabbel fixes that — hold a key, say what you mean, release, and the text appears wherever your cursor is. Runs entirely on your Mac. Your voice never leaves your machine.
-
-**Why not just use macOS dictation?** It can't handle mixed languages ("Im Sprint-Planning haben wir die OKRs reviewed"), mangles technical terms, times out after 30-60 seconds, and has no custom vocabulary. Sabbel uses Whisper large-v3-turbo on Apple Silicon GPU — it understands code-switching, technical jargon, and lets you teach it your vocabulary.
+Speaking is 3-4x faster than typing. Sabbel turns your voice into text anywhere on your Mac — powered by Whisper on Apple Silicon, fully offline.
 
 ## Why Sabbel
 
