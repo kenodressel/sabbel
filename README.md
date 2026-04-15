@@ -92,8 +92,8 @@ On first launch:
 
 | Action | What happens |
 |--------|-------------|
-| Hold **Right Option** | Recording starts |
-| Release **Right Option** | Speech is transcribed and pasted into the focused app |
+| Hold **Right Option** (⌥) | Recording starts |
+| Release **Right Option** (⌥) | Speech is transcribed and pasted into the focused app |
 
 The menu bar icon shows the current state:
 
@@ -113,7 +113,7 @@ Create `~/.config/sabbel/config.toml` to override defaults:
 ```toml
 [general]
 language = "de"    # "de", "en", or omit for auto-detect
-hotkey = "alt_r"   # any pynput key name: alt_r, f5, ctrl_r, cmd_r, ...
+hotkey = "alt_r"   # Right Option key. Other options: f5, ctrl_r, cmd_r, ...
 
 [model]
 repo = "mlx-community/whisper-large-v3-turbo"
