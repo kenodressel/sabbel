@@ -19,17 +19,58 @@
 </p>
 
 <p align="center">
+  <a href="#why-sabbel">Why Sabbel</a> •
   <a href="#install">Install</a> •
   <a href="#how-it-works">How It Works</a> •
   <a href="#configuration">Configuration</a> •
   <a href="#custom-dictionary">Custom Dictionary</a> •
-  <a href="#development">Development</a> •
-  <a href="#contributing">Contributing</a>
+  <a href="#development">Development</a>
 </p>
 
 ---
 
-Sabbel runs entirely on your Mac using [MLX Whisper](https://github.com/ml-explore/mlx-examples/tree/main/whisper) on Apple Silicon GPU. No cloud, no subscription, works offline. Your voice never leaves your machine.
+Speaking is 3-4x faster than typing. Yet most people still type their prompts to ChatGPT, Claude, and Cursor. Sabbel fixes that — hold a key, say what you mean, release, and the text appears wherever your cursor is. Runs entirely on your Mac. Your voice never leaves your machine.
+
+**Why not just use macOS dictation?** It can't handle mixed languages ("Im Sprint-Planning haben wir die OKRs reviewed"), mangles technical terms, times out after 30-60 seconds, and has no custom vocabulary. Sabbel uses Whisper large-v3-turbo on Apple Silicon GPU — it understands code-switching, technical jargon, and lets you teach it your vocabulary.
+
+## Why Sabbel
+
+<table>
+<tr>
+<td width="50%">
+
+### macOS Dictation
+
+- Breaks on mixed language ("Kubernetes" → "communities")
+- No custom dictionary
+- Times out after 30-60 seconds
+- ~10-20% word error rate
+- Audio may be sent to Apple servers
+
+</td>
+<td width="50%">
+
+### Sabbel
+
+- Handles German + English tech terms in the same sentence
+- Custom dictionary with domain-specific vocabulary
+- No timeout — dictate as long as you want
+- ~2-4% word error rate (Whisper large-v3)
+- 100% local, fully offline, nothing leaves your Mac
+
+</td>
+</tr>
+</table>
+
+**Compared to paid alternatives:**
+
+| | Sabbel | Wispr Flow | Superwhisper |
+|---|---|---|---|
+| **Price** | Free | $15/month | $8/month |
+| **Processing** | Local (Apple Silicon GPU) | Cloud | Local |
+| **Open Source** | Yes | No | No |
+| **Custom Dictionary** | Yes | Yes | Yes |
+| **Privacy** | Audio never leaves your Mac | Audio sent to cloud | Local option |
 
 ## Install
 
