@@ -175,14 +175,7 @@ make restart             # Reload the already installed app during normal dev
 
 Contributors are very welcome.
 
-If you want to help, start with [docs/TODO.md](docs/TODO.md). It tracks the roadmap, research notes, and the areas that are most useful right now, including:
-
-- auto-learning corrections via Accessibility APIs
-- optional local LLM post-processing
-- Whisper hallucination handling
-- distribution polish like notarization and update UX
-
-Small fixes, focused experiments, and implementation PRs are all useful. If you pick up one of the TODO items, mention it in your PR so work does not overlap unnecessarily.
+Check the [open issues](https://github.com/kenodressel/sabbel/issues) for things to work on. If you pick something up, mention it in the issue so work doesn't overlap.
 
 ## How It's Built
 
