@@ -299,11 +299,21 @@ class SabbelApp(rumps.App):
             callAfter(lambda t=text: self._do_inject(t))
 
     def _do_inject(self, text: str):
-        inject_text(
+        pasted = inject_text(
             text,
             pre_paste_delay=self._config.pre_paste_delay,
             post_paste_delay=self._config.post_paste_delay,
         )
+        if not pasted:
+            try:
+                rumps.notification(
+                    title="Sabbel",
+                    subtitle="Text im Clipboard",
+                    message="Kein Textfeld erkannt. Du kannst den Text mit Cmd+V einfuegen.",
+                    sound=False,
+                )
+            except Exception:
+                logging.exception("Failed to send clipboard notification")
         self._set_idle()
 
     def terminate_(self, sender):
