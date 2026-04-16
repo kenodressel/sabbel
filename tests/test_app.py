@@ -22,9 +22,13 @@ sys.modules.setdefault(
 from sabbel.app import (
     SabbelApp,
     _append_history,
+    _is_newer,
     _language_menu_title,
     _next_language,
     _normalize_language,
+    _parse_version,
+    _record_update_check,
+    _should_check_update,
 )
 
 
@@ -160,3 +164,72 @@ def test_save_to_history_writes_when_enabled(tmp_path):
     app._save_to_history("hello")
 
     assert "hello" in app._history_path.read_text()
+
+
+def test_parse_version_handles_common_forms():
+    assert _parse_version("1.2.3") == ((1, 2, 3), 1)
+    assert _parse_version("v1.2.3") == ((1, 2, 3), 1)
+    assert _parse_version("1.2") == ((1, 2, 0), 1)
+    assert _parse_version("1") == ((1, 0, 0), 1)
+    # Build metadata and whitespace are stripped
+    assert _parse_version("  1.2.3+build.5  ") == ((1, 2, 3), 1)
+
+
+def test_parse_version_rejects_garbage():
+    assert _parse_version("dev") is None
+    assert _parse_version("") is None
+    assert _parse_version("not.a.version") is None
+    assert _parse_version(None) is None
+
+
+def test_parse_version_prerelease_sorts_below_release():
+    assert _parse_version("1.2.3-rc1") == ((1, 2, 3), 0)
+    assert _parse_version("1.2.3-beta.2") == ((1, 2, 3), 0)
+    assert _parse_version("1.2.3-rc1") < _parse_version("1.2.3")
+
+
+def test_is_newer_compares_correctly():
+    assert _is_newer("0.2.0", "0.1.5")
+    assert _is_newer("1.0.0", "0.9.9")
+    assert not _is_newer("0.1.5", "0.1.5")
+    assert not _is_newer("0.1.4", "0.1.5")
+    # Prerelease is never newer than release of same numeric version
+    assert not _is_newer("1.2.3-rc1", "1.2.3")
+    # But a release is newer than its own prerelease
+    assert _is_newer("1.2.3", "1.2.3-rc1")
+    # Unparseable versions → False (don't claim an update)
+    assert not _is_newer("1.0.0", "dev")
+    assert not _is_newer("garbage", "1.0.0")
+
+
+def test_should_check_update_no_state_file(tmp_path):
+    state = tmp_path / "update-check.json"
+    assert _should_check_update(state, now=1_000_000.0, interval=86400) is True
+
+
+def test_should_check_update_respects_interval(tmp_path):
+    state = tmp_path / "update-check.json"
+    _record_update_check(state, now=1_000_000.0)
+
+    # One second later — still throttled
+    assert _should_check_update(state, now=1_000_001.0, interval=86400) is False
+    # After the interval — due again
+    assert _should_check_update(state, now=1_086_401.0, interval=86400) is True
+
+
+def test_should_check_update_handles_corrupt_state(tmp_path):
+    state = tmp_path / "update-check.json"
+    state.write_text("not valid json {{{")
+
+    # Corrupt state → fall through to "check anyway", don't crash
+    assert _should_check_update(state, now=1_000_000.0, interval=86400) is True
+
+
+def test_record_update_check_creates_parent(tmp_path):
+    state = tmp_path / "nested" / "update-check.json"
+
+    _record_update_check(state, now=1_234_567.0)
+
+    assert state.exists()
+    import json
+    assert json.loads(state.read_text())["last_check"] == 1_234_567.0

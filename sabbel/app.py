@@ -43,6 +43,76 @@ def _next_language(language: str | None) -> str | None:
     return None
 
 
+_UPDATE_CHECK_INTERVAL_SECONDS = 24 * 3600
+_UPDATE_STATE_PATH = Path.home() / ".config" / "sabbel" / "update-check.json"
+_RELEASES_LATEST_URL = (
+    "https://api.github.com/repos/kenodressel/sabbel/releases/latest"
+)
+
+
+def _parse_version(s: str) -> tuple | None:
+    """Parse a version string to a sortable tuple.
+
+    Handles:
+      - "1.2.3"           → ((1, 2, 3), 1)   # release
+      - "v1.2.3"          → ((1, 2, 3), 1)
+      - "1.2"             → ((1, 2, 0), 1)   # padded to 3 parts
+      - "1.2.3-rc1"       → ((1, 2, 3), 0)   # prereleases sort < release
+      - "1.2.3+build.5"   → ((1, 2, 3), 1)   # build metadata ignored
+      - "dev" / garbage   → None
+
+    The second tuple element (0 for prerelease, 1 for release) makes
+    "1.2.3-rc1" < "1.2.3", matching SemVer ordering.
+    """
+    if not isinstance(s, str):
+        return None
+    core = s.strip().lstrip("v").split("-", 1)[0].split("+", 1)[0]
+    if not core:
+        return None
+    try:
+        parts = [int(p) for p in core.split(".")]
+    except ValueError:
+        return None
+    while len(parts) < 3:
+        parts.append(0)
+    is_prerelease = "-" in s
+    return (tuple(parts), 0 if is_prerelease else 1)
+
+
+def _is_newer(latest: str, current: str) -> bool:
+    """True iff `latest` parses to a strictly newer version than `current`."""
+    l = _parse_version(latest)
+    c = _parse_version(current)
+    if l is None or c is None:
+        return False
+    return l > c
+
+
+def _should_check_update(state_path: Path, now: float, interval: float) -> bool:
+    """Read throttle state and decide whether we're due for a check."""
+    if not state_path.exists():
+        return True
+    try:
+        import json as _json
+        data = _json.loads(state_path.read_text())
+    except Exception:
+        return True
+    last = data.get("last_check", 0)
+    try:
+        return (now - float(last)) >= interval
+    except (TypeError, ValueError):
+        return True
+
+
+def _record_update_check(state_path: Path, now: float) -> None:
+    try:
+        import json as _json
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(_json.dumps({"last_check": now}))
+    except Exception:
+        logging.debug("Failed to record update check", exc_info=True)
+
+
 def _append_history(path: Path, text: str, max_bytes: int) -> None:
     """Append `text` to the history file, rotating once if it would grow
     past `max_bytes`. Rotation keeps exactly one backup at `path.1`.
@@ -78,6 +148,8 @@ class SabbelApp(rumps.App):
 
         # Menu — language cycle: Auto → Deutsch → English → Auto
         from sabbel import __version__
+        self._version = __version__
+        self._latest_version: str | None = None
         self._status_item = rumps.MenuItem("Status: Starting")
         self._lang_item = rumps.MenuItem(_language_menu_title(self._language))
         self._version_item = rumps.MenuItem(f"v{__version__}")
@@ -87,6 +159,14 @@ class SabbelApp(rumps.App):
             history_item.add(rumps.MenuItem("Open", callback=self._open_history))
             history_item.add(rumps.MenuItem("Clear", callback=self._clear_history))
             menu_items.append(history_item)
+        # Update check only makes sense on built releases, not local dev runs.
+        if self._version != "dev":
+            self._update_item = rumps.MenuItem(
+                "Check for updates", callback=self._on_update_click
+            )
+            menu_items.append(self._update_item)
+        else:
+            self._update_item = None
         menu_items.extend([None, self._version_item])
         self.menu = menu_items
         self._lang_item.set_callback(self._cycle_language)
@@ -143,6 +223,10 @@ class SabbelApp(rumps.App):
             target=self._monitor_permissions, daemon=True
         )
         self._permission_thread.start()
+
+        # Background update check (throttled, skipped on dev builds)
+        if self._update_item is not None:
+            threading.Thread(target=self._check_for_update, daemon=True).start()
 
         # Run main loop (blocks)
         super().run(**kwargs)
@@ -208,6 +292,68 @@ class SabbelApp(rumps.App):
             )
         except Exception:
             logging.exception("Failed to clear history")
+
+    def _on_update_click(self, _):
+        """Click handler for the update menu item.
+
+        If we already know an update is available, open the release page;
+        otherwise trigger a forced re-check in the background.
+        """
+        if self._latest_version:
+            subprocess.Popen([
+                "open",
+                f"https://github.com/kenodressel/sabbel/releases/tag/v{self._latest_version}",
+            ])
+        else:
+            threading.Thread(
+                target=lambda: self._check_for_update(force=True),
+                daemon=True,
+            ).start()
+
+    def _check_for_update(self, force: bool = False) -> None:
+        """Query the GitHub Releases API, throttled to once per day."""
+        if self._version == "dev":
+            return
+        now = time.time()
+        if not force and not _should_check_update(
+            _UPDATE_STATE_PATH, now, _UPDATE_CHECK_INTERVAL_SECONDS
+        ):
+            return
+        try:
+            import urllib.request
+            import json as _json
+            req = urllib.request.Request(
+                _RELEASES_LATEST_URL,
+                headers={"Accept": "application/vnd.github.v3+json"},
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = _json.loads(resp.read())
+        except Exception:
+            logging.debug("Update check failed", exc_info=True)
+            return
+        _record_update_check(_UPDATE_STATE_PATH, now)
+        latest = (data.get("tag_name") or "").lstrip("v")
+        if not latest:
+            return
+        if _is_newer(latest, self._version):
+            logging.info(
+                "Update available: v%s (current: v%s)", latest, self._version
+            )
+            callAfter(lambda: self._announce_update(latest))
+
+    def _announce_update(self, latest: str) -> None:
+        self._latest_version = latest
+        if self._update_item is not None:
+            self._update_item.title = f"Update v{latest} available"
+        try:
+            rumps.notification(
+                title="Sabbel",
+                subtitle=f"Update v{latest} available",
+                message="Click 'Update' in the Sabbel menu for details.",
+                sound=False,
+            )
+        except Exception:
+            logging.debug("Update notification failed", exc_info=True)
 
     def _set_idle(self):
         self._stop_spinner()
