@@ -167,9 +167,12 @@ cd sabbel
 uv run sabbel            # Run from source
 uv run pytest            # Run tests
 make build-app           # Build standalone .app with py2app
-make install-app         # Build + install to ~/Applications
+make install-app         # Build + install + reset permissions
 make restart             # Reload the already installed app during normal dev
+make reset-permissions   # Reset Accessibility + Microphone permissions manually
 ```
+
+Note: `make install-app` automatically resets TCC permissions because each build has a new ad-hoc signature. macOS will prompt for Accessibility and Microphone permissions again on launch.
 
 ## Contributing
 

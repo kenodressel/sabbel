@@ -56,9 +56,11 @@ class SabbelApp(rumps.App):
         self._dictionary = load_dictionary()
 
         # Menu — language cycle: Auto → Deutsch → English → Auto
+        from sabbel import __version__
         self._status_item = rumps.MenuItem("Status: Starte")
         self._lang_item = rumps.MenuItem(_language_menu_title(self._language))
-        self.menu = [self._status_item, self._lang_item, None]
+        self._version_item = rumps.MenuItem(f"v{__version__}")
+        self.menu = [self._status_item, self._lang_item, None, self._version_item]
         self._lang_item.set_callback(self._cycle_language)
 
         # Components

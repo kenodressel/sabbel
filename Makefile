@@ -67,12 +67,20 @@ build-app: icons/Sabbel.icns ## Build standalone Sabbel.app with py2app
 	@echo "✓ Built dist/Sabbel.app"
 
 install-app: build-app ## Install Sabbel.app into ~/Applications
+	@pkill -x "Sabbel" 2>/dev/null || true
+	@launchctl bootout $(LAUNCH_SERVICE) 2>/dev/null || true
+	@tccutil reset Accessibility com.sabbel.app 2>/dev/null || true
+	@tccutil reset Microphone com.sabbel.app 2>/dev/null || true
 	@mkdir -p $(HOME)/Applications
 	@rm -rf $(INSTALL_APP_DIR)
 	@cp -R dist/Sabbel.app $(INSTALL_APP_DIR)
 	@echo "✓ Installed $(INSTALL_APP_DIR)"
+	@echo "  Permissions were reset — macOS will prompt again on launch."
 
-reinstall-app: install-app ## Force a fresh app install after bundle changes
+reset-permissions: ## Reset Accessibility + Microphone permissions for Sabbel
+	@tccutil reset Accessibility com.sabbel.app 2>/dev/null || true
+	@tccutil reset Microphone com.sabbel.app 2>/dev/null || true
+	@echo "✓ Permissions reset. Relaunch Sabbel to re-grant."
 
 ensure-app-installed:
 	@if [ -d "$(INSTALL_APP_DIR)" ]; then \

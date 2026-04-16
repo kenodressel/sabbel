@@ -29,6 +29,15 @@ jobs:
           $FWPYTHON -m venv .venv
           .venv/bin/pip install -e '.[build,dev]'
 
+      - name: Set version from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          sed -i '' "s/__version__ = \"dev\"/__version__ = \"$VERSION\"/" sabbel/__init__.py
+          sed -i '' "s/'CFBundleShortVersionString': '0.1.0'/'CFBundleShortVersionString': '$VERSION'/" setup.py
+          sed -i '' "s/'CFBundleVersion': '0.1.0'/'CFBundleVersion': '$VERSION'/" setup.py
+          echo "✓ Version set to $VERSION"
+
       - name: Run tests
         run: .venv/bin/python -m pytest tests/ -v
 
