@@ -34,3 +34,19 @@ def test_load_config_partial_override(tmp_path):
     cfg = load_config(config_file)
     assert cfg.model_repo == "mlx-community/whisper-tiny"
     assert cfg.language == "de"
+
+
+def test_history_disabled_by_default():
+    cfg = SabbelConfig()
+    assert cfg.history_enabled is False
+    assert cfg.history_max_bytes == 1_000_000
+
+
+def test_load_config_enables_history(tmp_path):
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        '[history]\nenabled = true\nmax_bytes = 250000\n'
+    )
+    cfg = load_config(config_file)
+    assert cfg.history_enabled is True
+    assert cfg.history_max_bytes == 250000

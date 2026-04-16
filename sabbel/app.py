@@ -1,6 +1,9 @@
 import time
 import threading
 import logging
+import subprocess
+from datetime import datetime
+from pathlib import Path
 import numpy as np
 import rumps
 import sounddevice as sd
@@ -40,6 +43,21 @@ def _next_language(language: str | None) -> str | None:
     return None
 
 
+def _append_history(path: Path, text: str, max_bytes: int) -> None:
+    """Append `text` to the history file, rotating once if it would grow
+    past `max_bytes`. Rotation keeps exactly one backup at `path.1`.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists() and path.stat().st_size > max_bytes:
+        backup = path.with_name(path.name + ".1")
+        if backup.exists():
+            backup.unlink()
+        path.rename(backup)
+    with open(path, "a") as f:
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        f.write(f"--- {ts} ---\n{text}\n\n")
+
+
 class SabbelApp(rumps.App):
     def __init__(self, config: SabbelConfig):
         super().__init__(
@@ -55,12 +73,22 @@ class SabbelApp(rumps.App):
         # Dictionary
         self._dictionary = load_dictionary()
 
+        # History (opt-in via config, stored in XDG-style config dir)
+        self._history_path = Path.home() / ".config" / "sabbel" / "history.log"
+
         # Menu — language cycle: Auto → Deutsch → English → Auto
         from sabbel import __version__
         self._status_item = rumps.MenuItem("Status: Starting")
         self._lang_item = rumps.MenuItem(_language_menu_title(self._language))
         self._version_item = rumps.MenuItem(f"v{__version__}")
-        self.menu = [self._status_item, self._lang_item, None, self._version_item]
+        menu_items: list = [self._status_item, self._lang_item]
+        if config.history_enabled:
+            history_item = rumps.MenuItem("History")
+            history_item.add(rumps.MenuItem("Open", callback=self._open_history))
+            history_item.add(rumps.MenuItem("Clear", callback=self._clear_history))
+            menu_items.append(history_item)
+        menu_items.extend([None, self._version_item])
+        self.menu = menu_items
         self._lang_item.set_callback(self._cycle_language)
 
         # Components
@@ -148,6 +176,38 @@ class SabbelApp(rumps.App):
         self._model_ready = True
         logging.info("Whisper warmup completed")
         callAfter(self._set_idle)
+
+    def _save_to_history(self, text: str) -> None:
+        if not self._config.history_enabled:
+            return
+        try:
+            _append_history(
+                self._history_path,
+                text,
+                self._config.history_max_bytes,
+            )
+        except Exception:
+            logging.debug("Failed to save to history", exc_info=True)
+
+    def _open_history(self, _):
+        if self._history_path.exists():
+            subprocess.Popen(["open", str(self._history_path)])
+        else:
+            subprocess.Popen(["open", str(self._history_path.parent)])
+
+    def _clear_history(self, _):
+        try:
+            self._history_path.unlink(missing_ok=True)
+            backup = self._history_path.with_name(self._history_path.name + ".1")
+            backup.unlink(missing_ok=True)
+            rumps.notification(
+                title="Sabbel",
+                subtitle="History cleared",
+                message="",
+                sound=False,
+            )
+        except Exception:
+            logging.exception("Failed to clear history")
 
     def _set_idle(self):
         self._stop_spinner()
@@ -298,6 +358,7 @@ class SabbelApp(rumps.App):
                 text = apply_replacements(text, replacements)
 
             logging.info("Transcription succeeded: chars=%s", len(text))
+            self._save_to_history(text)
             callAfter(lambda t=text: self._do_inject(t))
 
     def _do_inject(self, text: str):

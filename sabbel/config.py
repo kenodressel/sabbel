@@ -11,6 +11,8 @@ class SabbelConfig:
     pre_paste_delay: float = 0.05
     post_paste_delay: float = 0.15
     hotkey: str = "alt_r"
+    history_enabled: bool = False
+    history_max_bytes: int = 1_000_000
 
 
 _TOML_MAP = {
@@ -20,6 +22,8 @@ _TOML_MAP = {
     ("injection", "pre_paste_delay"): "pre_paste_delay",
     ("injection", "post_paste_delay"): "post_paste_delay",
     ("general", "hotkey"): "hotkey",
+    ("history", "enabled"): "history_enabled",
+    ("history", "max_bytes"): "history_max_bytes",
 }
 
 _VALID_FIELDS = {f.name for f in fields(SabbelConfig)}
