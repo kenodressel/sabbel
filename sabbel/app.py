@@ -309,7 +309,7 @@ class SabbelApp(rumps.App):
                 rumps.notification(
                     title="Sabbel",
                     subtitle="Text im Clipboard",
-                    message="Kein Textfeld erkannt. Du kannst den Text mit Cmd+V einfuegen.",
+                    message="Kein Textfeld erkannt. Mit Cmd+V einfuegen.",
                     sound=False,
                 )
             except Exception:

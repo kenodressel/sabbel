@@ -102,9 +102,23 @@ fi
 mkdir -p "${INSTALL_DIR}"
 
 DEST="${INSTALL_DIR}/${APP_NAME}"
+IS_UPDATE=false
 
 if [ -d "${DEST}" ]; then
-  warn "Replacing existing installation at ${DEST}"
+  IS_UPDATE=true
+  info "Updating existing installation..."
+
+  # Stop running Sabbel
+  pkill -x "Sabbel" 2>/dev/null || true
+  DOMAIN="gui/$(id -u)"
+  launchctl bootout "${DOMAIN}/${PLIST_LABEL}" 2>/dev/null || true
+  sleep 1
+
+  # Reset TCC permissions for the old app identity so macOS prompts
+  # cleanly for the new build instead of silently denying
+  tccutil reset Accessibility com.sabbel.app 2>/dev/null || true
+  tccutil reset Microphone com.sabbel.app 2>/dev/null || true
+
   rm -rf "${DEST}"
 fi
 
@@ -174,10 +188,18 @@ fi
 # ---------------------------------------------------------------------------
 
 printf "\n"
-success "Sabbel has been installed to ${BOLD}${DEST}${RESET}"
-printf "\n"
-printf "%sNext steps:%s\n" "${BOLD}" "${RESET}"
-printf "  1. Open Sabbel from ~/Applications or Spotlight (press Cmd+Space, type Sabbel)\n"
-printf "  2. On first launch, macOS may ask you to confirm opening an app from the internet — click Open\n"
-printf "  3. Grant Accessibility and Microphone permissions when prompted\n"
+if [ "${IS_UPDATE}" = true ]; then
+  success "Sabbel has been updated!"
+  printf "\n"
+  printf "%sNext steps:%s\n" "${BOLD}" "${RESET}"
+  printf "  1. Open Sabbel from ~/Applications or Spotlight\n"
+  printf "  2. macOS will ask for Accessibility and Microphone permissions again\n"
+  printf "     (this is normal after an update — the app signature changed)\n"
+else
+  success "Sabbel has been installed to ${BOLD}${DEST}${RESET}"
+  printf "\n"
+  printf "%sNext steps:%s\n" "${BOLD}" "${RESET}"
+  printf "  1. Open Sabbel from ~/Applications or Spotlight (press Cmd+Space, type Sabbel)\n"
+  printf "  2. Grant Accessibility and Microphone permissions when prompted\n"
+fi
 printf "\n"
