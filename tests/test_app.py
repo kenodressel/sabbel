@@ -34,9 +34,9 @@ def test_normalize_language_falls_back_to_auto_for_unknown_values():
 
 
 def test_language_menu_title_matches_language():
-    assert _language_menu_title(None) == "Sprache: Auto"
-    assert _language_menu_title("de") == "Sprache: Deutsch"
-    assert _language_menu_title("en") == "Sprache: English"
+    assert _language_menu_title(None) == "Language: Auto"
+    assert _language_menu_title("de") == "Language: Deutsch"
+    assert _language_menu_title("en") == "Language: English"
 
 
 def test_next_language_cycles_auto_de_en():
@@ -70,7 +70,7 @@ def test_permission_monitor_does_not_start_hotkey_without_microphone(
 
     app._hotkey.start.assert_not_called()
     assert app._hotkey_started is False
-    app._set_status.assert_called_with("Mikrofon fehlt")
+    app._set_status.assert_called_with("Microphone missing")
 
 
 @patch("sabbel.app.time.sleep")
@@ -93,4 +93,4 @@ def test_permission_monitor_starts_hotkey_once_permissions_are_ready(
 
     app._hotkey.start.assert_called_once()
     assert app._hotkey_started is True
-    app._set_status.assert_called_with("Bereit")
+    app._set_status.assert_called_with("Ready")

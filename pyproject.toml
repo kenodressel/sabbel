@@ -1,7 +1,7 @@
 [project]
 name = "sabbel"
 version = "0.0.0-dev"
-description = "Lokale Spracherkennung fuer macOS"
+description = "Local voice dictation for macOS"
 requires-python = ">=3.10"
 dependencies = [
     "mlx-whisper>=0.4.0",

@@ -26,10 +26,10 @@ def _normalize_language(language: str | None) -> str | None:
 
 def _language_menu_title(language: str | None) -> str:
     if language == "de":
-        return "Sprache: Deutsch"
+        return "Language: Deutsch"
     if language == "en":
-        return "Sprache: English"
-    return "Sprache: Auto"
+        return "Language: English"
+    return "Language: Auto"
 
 
 def _next_language(language: str | None) -> str | None:
@@ -57,7 +57,7 @@ class SabbelApp(rumps.App):
 
         # Menu — language cycle: Auto → Deutsch → English → Auto
         from sabbel import __version__
-        self._status_item = rumps.MenuItem("Status: Starte")
+        self._status_item = rumps.MenuItem("Status: Starting")
         self._lang_item = rumps.MenuItem(_language_menu_title(self._language))
         self._version_item = rumps.MenuItem(f"v{__version__}")
         self.menu = [self._status_item, self._lang_item, None, self._version_item]
@@ -108,7 +108,7 @@ class SabbelApp(rumps.App):
 
         # Download + warm up model
         self.title = "⏳"
-        self._set_status("Modell wird geladen...")
+        self._set_status("Loading model...")
         threading.Thread(target=self._warmup, daemon=True).start()
 
         self._permission_thread = threading.Thread(
@@ -125,20 +125,20 @@ class SabbelApp(rumps.App):
         while self._running and not self._hotkey_started:
             if not check_accessibility(prompt=not accessibility_prompted):
                 accessibility_prompted = True
-                callAfter(lambda: self._set_status("Accessibility fehlt"))
+                callAfter(lambda: self._set_status("Accessibility missing"))
                 time.sleep(1)
                 continue
 
             if not check_microphone(request_if_needed=not microphone_prompted):
                 microphone_prompted = True
-                callAfter(lambda: self._set_status("Mikrofon fehlt"))
+                callAfter(lambda: self._set_status("Microphone missing"))
                 time.sleep(1)
                 continue
 
             self._hotkey.start()
             self._hotkey_started = True
             logging.info("Permissions ready; hotkey started")
-            callAfter(lambda: self._set_status("Bereit"))
+            callAfter(lambda: self._set_status("Ready"))
 
     def _set_status(self, message: str):
         self._status_item.title = f"Status: {message}"
@@ -153,7 +153,7 @@ class SabbelApp(rumps.App):
         self._stop_spinner()
         self._stop_error_timer()
         if self._hotkey_started:
-            self._set_status("Bereit")
+            self._set_status("Ready")
         self.title = "🎙"
 
     def _show_error(self, message: str):
@@ -171,8 +171,8 @@ class SabbelApp(rumps.App):
         try:
             rumps.notification(
                 title="Sabbel",
-                subtitle="Modell wird noch geladen",
-                message="Bitte warte einen Moment. Das Icon wechselt zu 🎙 sobald Sabbel bereit ist.",
+                subtitle="Model still loading",
+                message="Please wait. The icon will change to 🎙 when Sabbel is ready.",
                 sound=False,
             )
         except Exception:
@@ -182,8 +182,8 @@ class SabbelApp(rumps.App):
         try:
             rumps.notification(
                 title="Sabbel",
-                subtitle="Kein Audio erkannt",
-                message="Ich habe beim letzten Versuch keine Sprache gehoert.",
+                subtitle="No audio detected",
+                message="No speech was detected in the last recording.",
                 sound=False,
             )
         except Exception:
@@ -206,9 +206,9 @@ class SabbelApp(rumps.App):
         logging.info("Recording start requested")
         try:
             self._recorder.start()
-        except sd.PortAudioError as exc:
+        except sd.PortAudioError:
             logging.exception("Recorder error")
-            callAfter(lambda: self._show_error("Mikrofonfehler"))
+            callAfter(lambda: self._show_error("Mic error"))
             return
         callAfter(self._set_recording)
 
@@ -267,12 +267,12 @@ class SabbelApp(rumps.App):
 
             if not self._recorder.is_valid_duration(audio):
                 logging.info("Recording rejected: too short")
-                callAfter(lambda: self._show_error("Zu kurz"))
+                callAfter(lambda: self._show_error("Too short"))
                 continue
 
             if not self._recorder.has_speech(audio):
                 logging.info("Recording rejected: no speech detected")
-                callAfter(lambda: self._show_error("Kein Audio"))
+                callAfter(lambda: self._show_error("No audio"))
                 callAfter(self._notify_no_audio)
                 continue
 
@@ -282,14 +282,14 @@ class SabbelApp(rumps.App):
                     language=self._language,
                     initial_prompt=initial_prompt,
                 )
-            except Exception as e:
+            except Exception:
                 logging.exception("Transcription error")
-                callAfter(lambda: self._show_error("Fehler"))
+                callAfter(lambda: self._show_error("Error"))
                 continue
 
             if not text:
                 logging.info("Recording rejected: empty transcription")
-                callAfter(lambda: self._show_error("Nicht erkannt"))
+                callAfter(lambda: self._show_error("Not recognized"))
                 continue
 
             # Apply dictionary replacements
@@ -310,8 +310,8 @@ class SabbelApp(rumps.App):
             try:
                 rumps.notification(
                     title="Sabbel",
-                    subtitle="Text im Clipboard",
-                    message="Kein Textfeld erkannt. Mit Cmd+V einfuegen.",
+                    subtitle="Text copied to clipboard",
+                    message="No text field detected. Paste manually with Cmd+V.",
                     sound=False,
                 )
             except Exception:

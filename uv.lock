@@ -1561,7 +1561,7 @@ sdist = { url = "https://files.pythonhosted.org/packages/b2/e2/2e6a47951290bd1a2
 
 [[package]]
 name = "sabbel"
-version = "0.1.0"
+version = "0.0.0.dev0"
 source = { editable = "." }
 dependencies = [
     { name = "mlx-whisper" },

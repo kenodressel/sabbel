@@ -7,7 +7,7 @@ INSTALL_APP_DIR = $(HOME)/Applications/Sabbel.app
 LAUNCH_DOMAIN = gui/$(shell id -u)
 LAUNCH_SERVICE = $(LAUNCH_DOMAIN)/$(PLIST_NAME)
 
-.PHONY: run build-app install-app reinstall-app ensure-app-installed autostart autostart-remove stop restart status setup-dictionary download-model help
+.PHONY: run build-app install-app reinstall-app ensure-app-installed autostart autostart-remove stop restart status setup-dictionary download-model clean help
 
 run: ## Start Sabbel (foreground)
 	uv run sabbel
@@ -144,6 +144,10 @@ setup-dictionary: ## Open dictionary for editing
 download-model: ## Pre-download Whisper model (~1.5GB)
 	uv run python -c "import mlx_whisper, numpy as np; mlx_whisper.transcribe(np.zeros(16000, dtype=np.float32), path_or_hf_repo='mlx-community/whisper-large-v3-turbo')"
 	@echo "✓ Model cached."
+
+clean: ## Remove all build artifacts (forces full rebuild)
+	@rm -rf build dist
+	@echo "✓ Build cache cleared."
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
