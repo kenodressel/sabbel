@@ -7,6 +7,7 @@ Usage:
 
 import os
 import glob
+import re
 import sys
 
 # modulegraph's AST visitor can hit Python's default recursion limit on
@@ -14,6 +15,22 @@ import sys
 sys.setrecursionlimit(10_000)
 
 APP = ["sabbel/__main__.py"]
+
+
+def _read_version():
+    """Read __version__ from sabbel/__init__.py without importing it.
+
+    The plist requires a numeric "X.Y.Z" string; "dev" is not valid, so
+    fall back to "0.0.0" for unreleased builds.
+    """
+    init = os.path.join(os.path.dirname(__file__), "sabbel", "__init__.py")
+    with open(init) as f:
+        match = re.search(r'^__version__\s*=\s*"([^"]+)"', f.read(), re.M)
+    version = match.group(1) if match else "0.0.0"
+    return "0.0.0" if version == "dev" else version
+
+
+_BUNDLE_VERSION = _read_version()
 
 # ---------------------------------------------------------------------------
 # Locate native libraries that py2app won't discover automatically
@@ -92,8 +109,8 @@ OPTIONS = {
         "CFBundleDisplayName": "Sabbel",
         "CFBundleIdentifier": "com.sabbel.app",
         "CFBundleName": "Sabbel",
-        "CFBundleShortVersionString": "0.1.1",
-        "CFBundleVersion": "0.1.1",
+        "CFBundleShortVersionString": _BUNDLE_VERSION,
+        "CFBundleVersion": _BUNDLE_VERSION,
         "LSMinimumSystemVersion": "14.0",
         "LSUIElement": True,
         "NSMicrophoneUsageDescription": (
