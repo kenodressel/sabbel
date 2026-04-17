@@ -148,7 +148,8 @@ def test_append_history_replaces_existing_backup(tmp_path):
 
 def test_save_to_history_skips_when_disabled(tmp_path):
     app = SabbelApp.__new__(SabbelApp)
-    app._config = MagicMock(history_enabled=False, history_max_bytes=1_000_000)
+    app._config = MagicMock(history_max_bytes=1_000_000)
+    app._history_enabled = False
     app._history_path = tmp_path / "history.log"
 
     app._save_to_history("hello")
@@ -158,12 +159,32 @@ def test_save_to_history_skips_when_disabled(tmp_path):
 
 def test_save_to_history_writes_when_enabled(tmp_path):
     app = SabbelApp.__new__(SabbelApp)
-    app._config = MagicMock(history_enabled=True, history_max_bytes=1_000_000)
+    app._config = MagicMock(history_max_bytes=1_000_000)
+    app._history_enabled = True
     app._history_path = tmp_path / "history.log"
 
     app._save_to_history("hello")
 
     assert "hello" in app._history_path.read_text()
+
+
+def test_toggle_history_flips_state_and_persists(tmp_path):
+    from sabbel import app as app_module
+    app = SabbelApp.__new__(SabbelApp)
+    app._history_enabled = False
+
+    prefs_file = tmp_path / "preferences.json"
+    with patch.object(app_module, "save_preference") as mock_save:
+        sender = MagicMock(state=0)
+        app._toggle_history(sender)
+
+        assert app._history_enabled is True
+        assert sender.state == 1
+        mock_save.assert_called_once_with("history_enabled", True)
+
+        app._toggle_history(sender)
+        assert app._history_enabled is False
+        assert sender.state == 0
 
 
 def test_parse_version_handles_common_forms():

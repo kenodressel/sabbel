@@ -122,12 +122,14 @@ repo = "mlx-community/whisper-large-v3-turbo"
 min_duration_seconds = 0.5
 
 [history]
-enabled = false        # Off by default. When true, transcriptions are
-                       # appended to ~/.config/sabbel/history.log.
+enabled = false        # Seed value. The menu toggle is the primary control
+                       # and overrides this once flipped.
 max_bytes = 1000000    # Rotate log to .1 once it grows beyond this.
 ```
 
-> **⚠️ Privacy note:** History is opt-in because transcriptions can include anything you dictate — including passwords, private notes, or confidential work data. Enable it only if you're comfortable with that trade-off. The log stays on your machine; nothing is uploaded. Use the **History → Clear** menu entry to wipe it.
+**Toggle from the menu bar:** open the Sabbel menu → **History → Save history**. The checkmark persists across restarts (stored in `~/.config/sabbel/preferences.json`), so you don't need to edit TOML. Use **History → Open log** and **History → Clear log** to view or wipe it.
+
+> **⚠️ Privacy note:** History is off by default because transcriptions can include anything you dictate — including passwords, private notes, or confidential work data. Enable it only if you're comfortable with that trade-off. The log stays on your machine; nothing is uploaded.
 
 ## Custom Dictionary
 

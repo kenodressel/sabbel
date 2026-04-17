@@ -16,6 +16,7 @@ from sabbel.hotkey import HotkeyManager
 from sabbel.injector import inject_text
 from sabbel.dictionary import load_dictionary, apply_replacements, get_initial_prompt
 from sabbel.permissions import check_accessibility, check_microphone
+from sabbel.preferences import load_preferences, save_preference
 
 # Spinner frames for processing animation
 _SPINNER = ["◐", "◓", "◑", "◒"]
@@ -143,8 +144,10 @@ class SabbelApp(rumps.App):
         # Dictionary
         self._dictionary = load_dictionary()
 
-        # History (opt-in via config, stored in XDG-style config dir)
+        # History (opt-in; toggleable via menu, persisted to preferences.json)
         self._history_path = Path.home() / ".config" / "sabbel" / "history.log"
+        prefs = load_preferences()
+        self._history_enabled = prefs.get("history_enabled", config.history_enabled)
 
         # Menu — language cycle: Auto → Deutsch → English → Auto
         from sabbel import __version__
@@ -154,11 +157,18 @@ class SabbelApp(rumps.App):
         self._lang_item = rumps.MenuItem(_language_menu_title(self._language))
         self._version_item = rumps.MenuItem(f"v{__version__}")
         menu_items: list = [self._status_item, self._lang_item]
-        if config.history_enabled:
-            history_item = rumps.MenuItem("History")
-            history_item.add(rumps.MenuItem("Open", callback=self._open_history))
-            history_item.add(rumps.MenuItem("Clear", callback=self._clear_history))
-            menu_items.append(history_item)
+
+        # History submenu: always visible so users can discover the feature.
+        # "Save history" is a checkable toggle that writes to preferences.json.
+        history_item = rumps.MenuItem("History")
+        self._history_toggle = rumps.MenuItem(
+            "Save history", callback=self._toggle_history
+        )
+        self._history_toggle.state = 1 if self._history_enabled else 0
+        history_item.add(self._history_toggle)
+        history_item.add(rumps.MenuItem("Open log", callback=self._open_history))
+        history_item.add(rumps.MenuItem("Clear log", callback=self._clear_history))
+        menu_items.append(history_item)
         # Update check only makes sense on built releases, not local dev runs.
         if self._version != "dev":
             self._update_item = rumps.MenuItem(
@@ -262,7 +272,7 @@ class SabbelApp(rumps.App):
         callAfter(self._set_idle)
 
     def _save_to_history(self, text: str) -> None:
-        if not self._config.history_enabled:
+        if not self._history_enabled:
             return
         try:
             _append_history(
@@ -272,6 +282,11 @@ class SabbelApp(rumps.App):
             )
         except Exception:
             logging.debug("Failed to save to history", exc_info=True)
+
+    def _toggle_history(self, sender):
+        self._history_enabled = not self._history_enabled
+        sender.state = 1 if self._history_enabled else 0
+        save_preference("history_enabled", self._history_enabled)
 
     def _open_history(self, _):
         if self._history_path.exists():
