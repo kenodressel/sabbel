@@ -95,7 +95,7 @@ def _should_check_update(state_path: Path, now: float, interval: float) -> bool:
         return True
     try:
         import json as _json
-        data = _json.loads(state_path.read_text())
+        data = _json.loads(state_path.read_text(encoding="utf-8"))
     except Exception:
         return True
     last = data.get("last_check", 0)
@@ -109,7 +109,9 @@ def _record_update_check(state_path: Path, now: float) -> None:
     try:
         import json as _json
         state_path.parent.mkdir(parents=True, exist_ok=True)
-        state_path.write_text(_json.dumps({"last_check": now}))
+        state_path.write_text(
+            _json.dumps({"last_check": now}), encoding="utf-8"
+        )
     except Exception:
         logging.debug("Failed to record update check", exc_info=True)
 
@@ -124,7 +126,9 @@ def _append_history(path: Path, text: str, max_bytes: int) -> None:
         if backup.exists():
             backup.unlink()
         path.rename(backup)
-    with open(path, "a") as f:
+    # Force UTF-8 — the py2app bundle launches without a UTF-8 locale, so
+    # Python's default open() falls back to ASCII and crashes on any umlaut.
+    with open(path, "a", encoding="utf-8") as f:
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         f.write(f"--- {ts} ---\n{text}\n\n")
 
@@ -281,7 +285,7 @@ class SabbelApp(rumps.App):
                 self._config.history_max_bytes,
             )
         except Exception:
-            logging.debug("Failed to save to history", exc_info=True)
+            logging.warning("Failed to save to history", exc_info=True)
 
     def _toggle_history(self, sender):
         self._history_enabled = not self._history_enabled

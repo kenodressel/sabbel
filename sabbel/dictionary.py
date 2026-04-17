@@ -48,7 +48,7 @@ def save_learned_replacement(spoken: str, corrected: str, path: Path | None = No
         # Read existing content
         existing = ""
         if path.exists():
-            existing = path.read_text()
+            existing = path.read_text(encoding="utf-8")
 
         # Ensure [replacements] section exists
         if "[replacements]" not in existing:
@@ -66,4 +66,4 @@ def save_learned_replacement(spoken: str, corrected: str, path: Path | None = No
         if f'"{key}"' in existing:
             return  # Already learned
 
-        path.write_text(existing + entry)
+        path.write_text(existing + entry, encoding="utf-8")

@@ -134,6 +134,34 @@ def test_append_history_rotates_when_over_max_bytes(tmp_path):
     assert "x" * 200 not in path.read_text()
 
 
+def test_append_history_preserves_umlauts_under_ascii_locale(tmp_path, monkeypatch):
+    """Regression: py2app launches without a UTF-8 locale, so every
+    text-mode open() that doesn't pass encoding="utf-8" falls back to
+    ASCII and crashes on the first umlaut. This was silently losing
+    any German transcription from the history log.
+
+    We simulate that environment by intercepting builtins.open and
+    forcing ASCII whenever the caller didn't specify an encoding.
+    """
+    import builtins
+    real_open = builtins.open
+
+    def ascii_open(*args, **kwargs):
+        mode = kwargs.get("mode") or (args[1] if len(args) > 1 else "r")
+        if "b" not in mode and "encoding" not in kwargs:
+            kwargs["encoding"] = "ascii"
+        return real_open(*args, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", ascii_open)
+
+    path = tmp_path / "history.log"
+    _append_history(path, "Säulenzuschläge und Überweisung", max_bytes=10_000)
+
+    content = path.read_text(encoding="utf-8")
+    assert "Säulenzuschläge" in content
+    assert "Überweisung" in content
+
+
 def test_append_history_replaces_existing_backup(tmp_path):
     path = tmp_path / "history.log"
     backup = path.with_name("history.log.1")

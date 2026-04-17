@@ -17,7 +17,7 @@ def load_preferences(path: Path | None = None) -> dict:
     if not target.exists():
         return {}
     try:
-        data = json.loads(target.read_text())
+        data = json.loads(target.read_text(encoding="utf-8"))
         return data if isinstance(data, dict) else {}
     except Exception:
         logging.debug("Failed to read preferences", exc_info=True)
@@ -30,6 +30,6 @@ def save_preference(key: str, value, path: Path | None = None) -> None:
     prefs[key] = value
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps(prefs, indent=2))
+        target.write_text(json.dumps(prefs, indent=2), encoding="utf-8")
     except Exception:
         logging.debug("Failed to save preferences", exc_info=True)
