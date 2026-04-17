@@ -126,6 +126,12 @@ info "Installing to ${DEST}..."
 ditto "${TMPDIR}/${APP_NAME}" "${DEST}"
 
 # ---------------------------------------------------------------------------
+# Launch (macOS focuses it if it's already running via autostart below)
+# ---------------------------------------------------------------------------
+
+open "${DEST}"
+
+# ---------------------------------------------------------------------------
 # Autostart prompt
 # ---------------------------------------------------------------------------
 
@@ -189,17 +195,13 @@ fi
 
 printf "\n"
 if [ "${IS_UPDATE}" = true ]; then
-  success "Sabbel has been updated!"
+  success "Sabbel has been updated and launched."
   printf "\n"
-  printf "%sNext steps:%s\n" "${BOLD}" "${RESET}"
-  printf "  1. Open Sabbel from ~/Applications or Spotlight\n"
-  printf "  2. macOS will ask for Accessibility and Microphone permissions again\n"
-  printf "     (this is normal after an update — the app signature changed)\n"
+  printf "  macOS will prompt for Accessibility and Microphone permissions again —\n"
+  printf "  this is normal after an update since the app signature changed.\n"
 else
-  success "Sabbel has been installed to ${BOLD}${DEST}${RESET}"
+  success "Sabbel has been installed to ${BOLD}${DEST}${RESET} and launched."
   printf "\n"
-  printf "%sNext steps:%s\n" "${BOLD}" "${RESET}"
-  printf "  1. Open Sabbel from ~/Applications or Spotlight (press Cmd+Space, type Sabbel)\n"
-  printf "  2. Grant Accessibility and Microphone permissions when prompted\n"
+  printf "  Grant Accessibility and Microphone permissions when macOS prompts.\n"
 fi
 printf "\n"
