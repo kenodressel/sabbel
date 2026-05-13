@@ -20,12 +20,19 @@ def _normalize(text: str) -> str:
 
     - Strip leading/trailing whitespace.
     - Collapse internal runs of whitespace to a single space.
-    - Strip trailing punctuation (.!?,;:).
+    - Strip trailing punctuation (.!?,;:), but only if non-punctuation
+      characters remain — otherwise Whisper's "..." phantom would
+      normalize to "" and never match.
     - Casefold (Unicode-aware lowering — e.g., German ß → ss).
     """
     stripped = " ".join(text.split())
-    while stripped and stripped[-1] in ".!?,;:":
-        stripped = stripped[:-1]
+    # Count trailing-punctuation run.
+    suffix = 0
+    while suffix < len(stripped) and stripped[-1 - suffix] in ".!?,;:":
+        suffix += 1
+    # Only strip if non-punct content remains underneath.
+    if suffix < len(stripped):
+        stripped = stripped[: len(stripped) - suffix]
     return stripped.casefold()
 
 

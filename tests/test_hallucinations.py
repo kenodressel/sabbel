@@ -71,3 +71,17 @@ def test_is_known_phantom_extra_phrases_none_or_empty():
     assert is_known_phantom("Thank you.", extra_phrases=None) is True
     assert is_known_phantom("Thank you.", extra_phrases=[]) is True
     assert is_known_phantom("nope", extra_phrases=[]) is False
+
+
+def test_normalize_keeps_all_punctuation_strings():
+    # Whisper's "..." phantom must survive normalization; stripping
+    # all three dots would leave nothing for is_known_phantom to match.
+    assert _normalize("...") == "..."
+    assert _normalize(".") == "."
+    assert _normalize("!?") == "!?"
+
+
+def test_is_known_phantom_dots():
+    assert is_known_phantom("...") is True
+    # And after whitespace normalization
+    assert is_known_phantom("  ...  ") is True
