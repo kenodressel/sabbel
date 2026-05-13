@@ -304,7 +304,7 @@ class SabbelApp(rumps.App):
             if ns_menu is None:
                 raise RuntimeError("No submenu present yet")
             delegate = _MicMenuDelegate.alloc().initWithCallback_(
-                lambda: callAfter(self._rebuild_mic_menu)
+                self._rebuild_mic_menu
             )
             ns_menu.setDelegate_(delegate)
             self._mic_delegate = delegate
