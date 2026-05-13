@@ -505,6 +505,17 @@ class SabbelApp(rumps.App):
         except Exception:
             logging.exception("Failed to send no-audio notification")
 
+    def _notify_mic_fallback(self, expected_name: str):
+        try:
+            rumps.notification(
+                title="Sabbel",
+                subtitle=f"Mic '{expected_name}' not found",
+                message="Using system default. Pick another mic from the Sabbel menu.",
+                sound=False,
+            )
+        except Exception:
+            logging.exception("Failed to send mic-fallback notification")
+
     def _clear_error(self, timer):
         timer.stop()
         self._set_idle()
@@ -526,6 +537,10 @@ class SabbelApp(rumps.App):
             logging.exception("Recorder error")
             callAfter(lambda: self._show_error("Mic error"))
             return
+        missing = self._recorder.last_missing_device
+        if missing:
+            self._recorder.last_missing_device = None
+            callAfter(lambda name=missing: self._notify_mic_fallback(name))
         callAfter(self._set_recording)
 
     def _on_recording_stop(self):
