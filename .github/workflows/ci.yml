@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [main]
 
+env:
+  # Opt actions/checkout@v4, astral-sh/setup-uv@v4 etc. into Node 24
+  # ahead of the Sept 2026 forced cutover. Drop once all pinned actions
+  # ship a default-Node-24 release.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   test:
     runs-on: macos-14
