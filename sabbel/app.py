@@ -420,7 +420,11 @@ class SabbelApp(rumps.App):
         devices = list_input_devices()
         spec = _build_mic_menu_spec(devices=devices, selected=self._audio_device)
         self._mic_device_map.clear()
-        self._mic_menu.clear()
+        # rumps' Menu.clear() crashes when the underlying NSMenu hasn't been
+        # created yet — that's the case on the very first build, before any
+        # item has been added. Skip clear in that case.
+        if len(self._mic_menu) > 0:
+            self._mic_menu.clear()
         for item in spec:
             if item["kind"] == "separator":
                 self._mic_menu.add(rumps.separator)

@@ -162,3 +162,25 @@ def test_on_recording_start_no_notification_when_device_present(monkeypatch):
 
     # Only _set_recording was scheduled
     assert len(queued) == 1
+
+
+def test_rebuild_mic_menu_does_not_clear_empty_submenu(monkeypatch):
+    """Regression: rumps.MenuItem._menu is None until the first .add() call,
+    so calling .clear() on a never-populated submenu raises AttributeError
+    inside removeAllItems. _rebuild_mic_menu must skip clear() on first build.
+    """
+    import rumps
+    app = object.__new__(SabbelApp)
+    app._audio_device = None
+    app._mic_device_map = {}
+    app._mic_menu = rumps.MenuItem("Microphone")
+    # Verify the precondition that motivates the guard: the rumps backing
+    # NSMenu doesn't exist until something is added.
+    assert app._mic_menu._menu is None
+    monkeypatch.setattr("sabbel.app.list_input_devices", lambda: [])
+
+    # Must not raise.
+    app._rebuild_mic_menu()
+
+    # System Default should now be present.
+    assert "System Default" in app._mic_menu
