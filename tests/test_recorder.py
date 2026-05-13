@@ -89,3 +89,25 @@ def test_has_speech_rejects_near_silence():
     recorder = AudioRecorder.__new__(AudioRecorder)
     audio = np.full(16000, 0.001, dtype=np.float32)
     assert recorder.has_speech(audio) is False
+
+
+def test_list_input_devices_filters_output_only():
+    fake_devices = [
+        {"name": "MacBook Pro Microphone", "index": 0, "max_input_channels": 1},
+        {"name": "MacBook Pro Speakers", "index": 1, "max_input_channels": 0},
+        {"name": "Dell WD22 Mic", "index": 2, "max_input_channels": 2},
+    ]
+    with patch("sabbel.recorder.sd.query_devices", return_value=fake_devices):
+        from sabbel.recorder import list_input_devices
+        result = list_input_devices()
+
+    assert result == [
+        {"name": "MacBook Pro Microphone", "index": 0},
+        {"name": "Dell WD22 Mic", "index": 2},
+    ]
+
+
+def test_list_input_devices_handles_query_error():
+    with patch("sabbel.recorder.sd.query_devices", side_effect=OSError("PortAudio error")):
+        from sabbel.recorder import list_input_devices
+        assert list_input_devices() == []

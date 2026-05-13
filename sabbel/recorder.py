@@ -1,3 +1,4 @@
+import logging
 import queue
 import numpy as np
 import sounddevice as sd
@@ -7,6 +8,25 @@ SAMPLE_RATE = 16_000
 CHANNELS = 1
 DTYPE = "float32"
 BLOCK_SIZE = 1600  # 100ms chunks
+
+
+def list_input_devices() -> list[dict]:
+    """Return input-capable devices as `[{"name": str, "index": int}, ...]`.
+
+    Filters `sd.query_devices()` to entries with `max_input_channels > 0`.
+    Returns `[]` if PortAudio enumeration fails — Sabbel should still work
+    via the system default in that case.
+    """
+    try:
+        devices = sd.query_devices()
+    except Exception:
+        logging.debug("query_devices failed", exc_info=True)
+        return []
+    result = []
+    for d in devices:
+        if d.get("max_input_channels", 0) > 0:
+            result.append({"name": d["name"], "index": d.get("index", devices.index(d))})
+    return result
 
 
 class AudioRecorder:
