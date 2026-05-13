@@ -7,10 +7,12 @@ from pathlib import Path
 import numpy as np
 import rumps
 import sounddevice as sd
+import objc
+from Foundation import NSObject
 from PyObjCTools.AppHelper import callAfter
 
 from sabbel.config import SabbelConfig
-from sabbel.recorder import AudioRecorder
+from sabbel.recorder import AudioRecorder, list_input_devices
 from sabbel.transcriber import TranscriptionEngine
 from sabbel.hotkey import HotkeyManager
 from sabbel.injector import inject_text
@@ -20,6 +22,23 @@ from sabbel.preferences import load_preferences, save_preference
 
 # Spinner frames for processing animation
 _SPINNER = ["◐", "◓", "◑", "◒"]
+
+
+class _MicMenuDelegate(NSObject):
+    """NSMenuDelegate that asks the app to rebuild the mic submenu before display."""
+
+    def initWithCallback_(self, callback):
+        self = objc.super(_MicMenuDelegate, self).init()
+        if self is None:
+            return None
+        self._callback = callback
+        return self
+
+    def menuWillOpen_(self, menu):
+        try:
+            self._callback()
+        except Exception:
+            logging.exception("Mic menu refresh failed")
 
 
 def _normalize_language(language: str | None) -> str | None:
@@ -42,6 +61,52 @@ def _next_language(language: str | None) -> str | None:
     if language == "de":
         return "en"
     return None
+
+
+def _build_mic_menu_spec(devices: list[dict], selected: str | None) -> list[dict]:
+    """Build a structured spec for the Microphone submenu.
+
+    Pure function so the build logic is testable without instantiating rumps.
+
+    Args:
+        devices: from `list_input_devices()`, may be empty.
+        selected: persisted user preference (device name) or `None` for default.
+
+    Returns:
+        A list of items, each a dict with a `"kind"` discriminator:
+          - `{"kind": "device", "name": str | None, "label": str, "checked": bool}`
+          - `{"kind": "separator"}`
+          - `{"kind": "offline", "label": str}`  (non-clickable header)
+    """
+    device_names = {d["name"] for d in devices}
+    spec: list[dict] = []
+
+    saved_offline = selected is not None and selected not in device_names
+    if saved_offline:
+        spec.append({"kind": "offline", "label": f"Saved: {selected} (offline)"})
+        spec.append({"kind": "separator"})
+
+    # Default is active either when explicitly chosen (selected is None) or
+    # when the saved device is offline (fell back at runtime).
+    default_active = selected is None or saved_offline
+    spec.append({
+        "kind": "device",
+        "name": None,
+        "label": "System Default",
+        "checked": default_active,
+    })
+
+    if devices:
+        spec.append({"kind": "separator"})
+        for d in sorted(devices, key=lambda x: x["name"].lower()):
+            spec.append({
+                "kind": "device",
+                "name": d["name"],
+                "label": d["name"],
+                "checked": (d["name"] == selected),
+            })
+
+    return spec
 
 
 _UPDATE_CHECK_INTERVAL_SECONDS = 24 * 3600
@@ -152,6 +217,7 @@ class SabbelApp(rumps.App):
         self._history_path = Path.home() / ".config" / "sabbel" / "history.log"
         prefs = load_preferences()
         self._history_enabled = prefs.get("history_enabled", config.history_enabled)
+        self._audio_device: str | None = prefs.get("audio_device")
 
         # Menu — language cycle: Auto → Deutsch → English → Auto
         from sabbel import __version__
@@ -173,6 +239,17 @@ class SabbelApp(rumps.App):
         history_item.add(rumps.MenuItem("Open log", callback=self._open_history))
         history_item.add(rumps.MenuItem("Clear log", callback=self._clear_history))
         menu_items.append(history_item)
+        # Maps menu-item label → device name (None for "System Default").
+        # Built by _rebuild_mic_menu; consumed by _on_mic_select.
+        self._mic_device_map: dict[str, str | None] = {}
+        # Microphone submenu — built fresh on every menu-open via NSMenuDelegate.
+        # Initial population is deferred until after `self.menu = menu_items`
+        # because rumps only attaches the backing NSMenu when the MenuItem is
+        # added to a parent menu — calling .clear() before then explodes.
+        self._mic_menu = rumps.MenuItem("Microphone")
+        menu_items.append(self._mic_menu)
+        self._mic_manual_refresh = False
+        self._notified_missing_device: str | None = None
         # Update check only makes sense on built releases, not local dev runs.
         if self._version != "dev":
             self._update_item = rumps.MenuItem(
@@ -183,11 +260,15 @@ class SabbelApp(rumps.App):
             self._update_item = None
         menu_items.extend([None, self._version_item])
         self.menu = menu_items
+        self._rebuild_mic_menu()
+        self._mic_delegate = None  # Hold ref so PyObjC doesn't release it.
+        self._attach_mic_menu_delegate()
         self._lang_item.set_callback(self._cycle_language)
 
         # Components
         self._recorder = AudioRecorder(
             min_duration_seconds=config.min_duration_seconds,
+            device=self._audio_device,
         )
         self._transcriber = TranscriptionEngine(
             model_repo=config.model_repo,
@@ -217,6 +298,28 @@ class SabbelApp(rumps.App):
     def _cycle_language(self, sender):
         self._language = _next_language(self._language)
         sender.title = _language_menu_title(self._language)
+
+    def _attach_mic_menu_delegate(self):
+        """Hook NSMenuDelegate.menuWillOpen_ so the device list refreshes
+        on every menu-open. If anything in this PyObjC plumbing fails,
+        fall back to a manual 'Refresh devices' item appended to the submenu.
+        """
+        try:
+            ns_menu = self._mic_menu._menuitem.submenu()
+            if ns_menu is None:
+                raise RuntimeError("No submenu present yet")
+            delegate = _MicMenuDelegate.alloc().initWithCallback_(
+                self._rebuild_mic_menu
+            )
+            ns_menu.setDelegate_(delegate)
+            self._mic_delegate = delegate
+        except Exception:
+            logging.warning(
+                "NSMenuDelegate hookup failed, falling back to manual refresh",
+                exc_info=True,
+            )
+            self._mic_manual_refresh = True
+            self._add_mic_refresh_item()
 
     def run(self, **kwargs):
         # Create error reset timer (stopped, reused)
@@ -311,6 +414,58 @@ class SabbelApp(rumps.App):
             )
         except Exception:
             logging.exception("Failed to clear history")
+
+    def _rebuild_mic_menu(self):
+        """Repopulate the Microphone submenu from current device state."""
+        devices = list_input_devices()
+        spec = _build_mic_menu_spec(devices=devices, selected=self._audio_device)
+        self._mic_device_map.clear()
+        # rumps' Menu.clear() crashes when the underlying NSMenu hasn't been
+        # created yet — that's the case on the very first build, before any
+        # item has been added. Skip clear in that case.
+        if len(self._mic_menu) > 0:
+            self._mic_menu.clear()
+        for item in spec:
+            if item["kind"] == "separator":
+                self._mic_menu.add(rumps.separator)
+                continue
+            if item["kind"] == "offline":
+                # Greyed/non-clickable header. rumps doesn't auto-disable items
+                # without callbacks (they stay enabled but do nothing on click),
+                # so we disable via the underlying NSMenuItem explicitly.
+                header = rumps.MenuItem(item["label"])
+                header._menuitem.setEnabled_(False)
+                self._mic_menu.add(header)
+                continue
+            # device
+            menu_item = rumps.MenuItem(
+                item["label"],
+                callback=self._on_mic_select,
+            )
+            menu_item.state = 1 if item["checked"] else 0
+            self._mic_device_map[item["label"]] = item["name"]
+            self._mic_menu.add(menu_item)
+        if getattr(self, "_mic_manual_refresh", False):
+            self._add_mic_refresh_item()
+
+    def _add_mic_refresh_item(self):
+        self._mic_menu.add(rumps.separator)
+        self._mic_menu.add(
+            rumps.MenuItem(
+                "Refresh devices",
+                callback=lambda _: self._rebuild_mic_menu(),
+            )
+        )
+
+    def _on_mic_select(self, sender):
+        new_device = self._mic_device_map.get(sender.title)
+        if new_device == self._audio_device:
+            return
+        self._audio_device = new_device
+        self._notified_missing_device = None
+        self._recorder.set_device(new_device)
+        save_preference("audio_device", new_device)
+        self._rebuild_mic_menu()
 
     def _on_update_click(self, _):
         """Click handler for the update menu item.
@@ -414,6 +569,17 @@ class SabbelApp(rumps.App):
         except Exception:
             logging.exception("Failed to send no-audio notification")
 
+    def _notify_mic_fallback(self, expected_name: str):
+        try:
+            rumps.notification(
+                title="Sabbel",
+                subtitle=f"Mic '{expected_name}' not found",
+                message="Using system default. Pick another mic from the Sabbel menu.",
+                sound=False,
+            )
+        except Exception:
+            logging.exception("Failed to send mic-fallback notification")
+
     def _clear_error(self, timer):
         timer.stop()
         self._set_idle()
@@ -433,8 +599,17 @@ class SabbelApp(rumps.App):
             self._recorder.start()
         except sd.PortAudioError:
             logging.exception("Recorder error")
+            self._recorder.last_missing_device = None
             callAfter(lambda: self._show_error("Mic error"))
             return
+        missing = self._recorder.last_missing_device
+        if missing:
+            self._recorder.last_missing_device = None
+            if missing != self._notified_missing_device:
+                self._notified_missing_device = missing
+                callAfter(lambda name=missing: self._notify_mic_fallback(name))
+        else:
+            self._notified_missing_device = None
         callAfter(self._set_recording)
 
     def _on_recording_stop(self):

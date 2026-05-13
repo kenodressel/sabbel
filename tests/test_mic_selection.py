@@ -1,0 +1,231 @@
+from unittest.mock import MagicMock
+import sabbel.app as app_mod
+from sabbel.app import _build_mic_menu_spec, SabbelApp
+
+
+def test_no_devices_only_default():
+    spec = _build_mic_menu_spec(devices=[], selected=None)
+    assert spec == [
+        {"kind": "device", "name": None, "label": "System Default", "checked": True},
+    ]
+
+
+def test_devices_sorted_alphabetically_with_separator():
+    devices = [
+        {"name": "USB Headset", "index": 3},
+        {"name": "MacBook Pro Microphone", "index": 0},
+        {"name": "Dell WD22 Mic", "index": 2},
+    ]
+    spec = _build_mic_menu_spec(devices=devices, selected=None)
+    assert spec == [
+        {"kind": "device", "name": None, "label": "System Default", "checked": True},
+        {"kind": "separator"},
+        {"kind": "device", "name": "Dell WD22 Mic", "label": "Dell WD22 Mic", "checked": False},
+        {"kind": "device", "name": "MacBook Pro Microphone", "label": "MacBook Pro Microphone", "checked": False},
+        {"kind": "device", "name": "USB Headset", "label": "USB Headset", "checked": False},
+    ]
+
+
+def test_selected_device_present_gets_checkmark():
+    devices = [
+        {"name": "Dell WD22 Mic", "index": 2},
+        {"name": "MacBook Pro Microphone", "index": 0},
+    ]
+    spec = _build_mic_menu_spec(devices=devices, selected="Dell WD22 Mic")
+    labels_checked = [(item.get("label"), item.get("checked")) for item in spec if item["kind"] == "device"]
+    assert labels_checked == [
+        ("System Default", False),
+        ("Dell WD22 Mic", True),
+        ("MacBook Pro Microphone", False),
+    ]
+
+
+def test_selected_device_offline_shows_header_and_defaults_checked():
+    devices = [
+        {"name": "MacBook Pro Microphone", "index": 0},
+    ]
+    spec = _build_mic_menu_spec(devices=devices, selected="Dell WD22 Mic")
+    assert spec[0] == {"kind": "offline", "label": "Saved: Dell WD22 Mic (offline)"}
+    assert spec[1] == {"kind": "separator"}
+    device_items = [item for item in spec if item["kind"] == "device"]
+    assert device_items[0] == {
+        "kind": "device", "name": None, "label": "System Default", "checked": True,
+    }
+    assert {"name": "MacBook Pro Microphone", "label": "MacBook Pro Microphone", "checked": False, "kind": "device"} in device_items
+
+
+def test_case_mismatch_treats_saved_device_as_offline():
+    """Case-sensitive name match: 'dell wd22 mic' must not check 'Dell WD22 Mic'.
+
+    Task 2's _resolve_device also uses exact match, so a case-mismatched
+    save is correctly treated as 'device not currently available'.
+    """
+    devices = [{"name": "Dell WD22 Mic", "index": 2}]
+    spec = _build_mic_menu_spec(devices=devices, selected="dell wd22 mic")
+
+    assert spec[0]["kind"] == "offline"
+
+    device_items = [item for item in spec if item["kind"] == "device"]
+    default_item = next(item for item in device_items if item["name"] is None)
+    real_devices = [item for item in device_items if item["name"] is not None]
+
+    assert default_item["checked"] is True
+    assert all(not item["checked"] for item in real_devices)
+
+
+def test_on_mic_select_updates_state_then_recorder_then_pref_then_rebuild(monkeypatch):
+    """_on_mic_select must update local state, tell the recorder, persist,
+    and rebuild the menu — in that order. Regressions in ordering can cause
+    drift between the recorder's _device and the persisted pref.
+    """
+    app = object.__new__(SabbelApp)
+    app._audio_device = None
+    app._mic_device_map = {"Dell WD22 Mic": "Dell WD22 Mic"}
+
+    recorder = MagicMock()
+    app._recorder = recorder
+
+    calls = []
+    recorder.set_device.side_effect = lambda d: calls.append(("set_device", d))
+    monkeypatch.setattr(app_mod, "save_preference",
+                        lambda k, v: calls.append(("save_preference", k, v)))
+    app._rebuild_mic_menu = lambda: calls.append(("rebuild",))
+
+    sender = MagicMock()
+    sender.title = "Dell WD22 Mic"
+    app._on_mic_select(sender)
+
+    assert app._audio_device == "Dell WD22 Mic"
+    assert calls == [
+        ("set_device", "Dell WD22 Mic"),
+        ("save_preference", "audio_device", "Dell WD22 Mic"),
+        ("rebuild",),
+    ]
+
+
+def test_on_mic_select_same_device_short_circuits(monkeypatch):
+    app = object.__new__(SabbelApp)
+    app._audio_device = "Dell WD22 Mic"
+    app._mic_device_map = {"Dell WD22 Mic": "Dell WD22 Mic"}
+
+    recorder = MagicMock()
+    app._recorder = recorder
+
+    calls = []
+    monkeypatch.setattr(app_mod, "save_preference",
+                        lambda k, v: calls.append(("save_preference", k, v)))
+    app._rebuild_mic_menu = lambda: calls.append(("rebuild",))
+
+    sender = MagicMock()
+    sender.title = "Dell WD22 Mic"
+    app._on_mic_select(sender)
+
+    recorder.set_device.assert_not_called()
+    assert calls == []  # no persistence, no rebuild
+
+
+def test_on_recording_start_notifies_on_missing_device(monkeypatch):
+    """When the recorder reports a missing device after start(), the app
+    must schedule a fallback notification and clear last_missing_device.
+    """
+    app = object.__new__(SabbelApp)
+    app._model_ready = True
+    app._notified_missing_device = None
+    recorder = MagicMock()
+    recorder.last_missing_device = "Dell WD22 Mic"
+    app._recorder = recorder
+
+    queued = []
+    monkeypatch.setattr("sabbel.app.callAfter", lambda fn: queued.append(fn))
+
+    app._on_recording_start()
+
+    # last_missing_device cleared so repeat recordings don't re-notify
+    assert recorder.last_missing_device is None
+    # Two callbacks scheduled: notification, then _set_recording
+    assert len(queued) == 2
+
+
+def test_on_recording_start_notifies_missing_device_once_until_available(monkeypatch):
+    app = object.__new__(SabbelApp)
+    app._model_ready = True
+    app._notified_missing_device = None
+    recorder = MagicMock()
+    app._recorder = recorder
+    app._notify_mic_fallback = MagicMock()
+    app._set_recording = MagicMock()
+
+    def report_missing():
+        recorder.last_missing_device = "Dell WD22 Mic"
+
+    recorder.start.side_effect = report_missing
+    monkeypatch.setattr("sabbel.app.callAfter", lambda fn: fn())
+
+    app._on_recording_start()
+    app._on_recording_start()
+
+    app._notify_mic_fallback.assert_called_once_with("Dell WD22 Mic")
+    assert app._set_recording.call_count == 2
+    assert recorder.last_missing_device is None
+
+
+def test_on_recording_start_no_notification_when_device_present(monkeypatch):
+    """When the recorder reports no missing device, only the recording-state
+    callback is scheduled.
+    """
+    app = object.__new__(SabbelApp)
+    app._model_ready = True
+    app._notified_missing_device = "Dell WD22 Mic"
+    recorder = MagicMock()
+    recorder.last_missing_device = None
+    app._recorder = recorder
+
+    queued = []
+    monkeypatch.setattr("sabbel.app.callAfter", lambda fn: queued.append(fn))
+
+    app._on_recording_start()
+
+    # Only _set_recording was scheduled
+    assert len(queued) == 1
+    assert app._notified_missing_device is None
+
+
+def test_rebuild_mic_menu_does_not_clear_empty_submenu(monkeypatch):
+    """Regression: rumps.MenuItem._menu is None until the first .add() call,
+    so calling .clear() on a never-populated submenu raises AttributeError
+    inside removeAllItems. _rebuild_mic_menu must skip clear() on first build.
+    """
+    import rumps
+    app = object.__new__(SabbelApp)
+    app._audio_device = None
+    app._mic_device_map = {}
+    app._mic_menu = rumps.MenuItem("Microphone")
+    # Verify the precondition that motivates the guard: the rumps backing
+    # NSMenu doesn't exist until something is added.
+    assert app._mic_menu._menu is None
+    monkeypatch.setattr("sabbel.app.list_input_devices", lambda: [])
+
+    # Must not raise.
+    app._rebuild_mic_menu()
+
+    # System Default should now be present.
+    assert "System Default" in app._mic_menu
+
+
+def test_rebuild_mic_menu_preserves_manual_refresh_fallback(monkeypatch):
+    """If NSMenuDelegate hookup fails, every rebuild must keep the manual
+    refresh action available.
+    """
+    import rumps
+    app = object.__new__(SabbelApp)
+    app._audio_device = None
+    app._mic_device_map = {}
+    app._mic_manual_refresh = True
+    app._mic_menu = rumps.MenuItem("Microphone")
+    monkeypatch.setattr("sabbel.app.list_input_devices", lambda: [])
+
+    app._rebuild_mic_menu()
+    assert "Refresh devices" in app._mic_menu
+
+    app._rebuild_mic_menu()
+    assert list(app._mic_menu).count("Refresh devices") == 1
