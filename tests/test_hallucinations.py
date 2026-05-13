@@ -175,3 +175,15 @@ def test_looks_like_hallucination_extra_phrases_threaded_through():
     assert looks_like_hallucination(
         "hello", extra_phrases=["Hello"]
     ) is True
+
+
+def test_is_known_phantom_extended_defaults():
+    """Extended default set: bracketed annotations, longer music runs,
+    Bye bye, etc."""
+    assert is_known_phantom("Bye bye.") is True
+    assert is_known_phantom("[Music]") is True
+    assert is_known_phantom("[Applause]") is True
+    assert is_known_phantom("♪♪♪") is True
+    # Casefolded variants
+    assert is_known_phantom("[MUSIC]") is True
+    assert is_known_phantom("[music]") is True

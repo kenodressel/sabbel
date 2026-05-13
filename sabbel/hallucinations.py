@@ -7,7 +7,7 @@ or short audio. We catch the two common shapes after transcription:
   "Thank you." (YouTube English subtitles) or "Untertitel im Auftrag
   des ZDF" (German broadcast subtitles).
 - Repetition — same token or n-gram repeated consecutively (handled
-  in is_repetition_hallucination, added in a later task).
+  in is_repetition_hallucination).
 
 Matching is exact-full-text after normalization, never substring —
 substring matches would reject legitimate speech that happens to
@@ -44,6 +44,7 @@ _DEFAULT_PHANTOMS: frozenset[str] = frozenset(
         "Thanks for watching!",
         "Please subscribe.",
         "Bye.",
+        "Bye bye.",
         "you",
         # German (broadcast subtitle training data)
         "Untertitel im Auftrag des ZDF",
@@ -54,9 +55,13 @@ _DEFAULT_PHANTOMS: frozenset[str] = frozenset(
         "Untertitelung aufgrund der Amara.org-Community",
         "Vielen Dank.",
         "Danke fürs Zuschauen.",
+        # Bracketed annotations Whisper emits over music/applause
+        "[Music]",
+        "[Applause]",
         # Music / punctuation-only markers
         "♪",
         "♪♪",
+        "♪♪♪",
         "...",
     ]
 )
