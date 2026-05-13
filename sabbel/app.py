@@ -44,6 +44,52 @@ def _next_language(language: str | None) -> str | None:
     return None
 
 
+def _build_mic_menu_spec(devices: list[dict], selected: str | None) -> list[dict]:
+    """Build a structured spec for the Microphone submenu.
+
+    Pure function so the build logic is testable without instantiating rumps.
+
+    Args:
+        devices: from `list_input_devices()`, may be empty.
+        selected: persisted user preference (device name) or `None` for default.
+
+    Returns:
+        A list of items, each a dict with a `"kind"` discriminator:
+          - `{"kind": "device", "name": str | None, "label": str, "checked": bool}`
+          - `{"kind": "separator"}`
+          - `{"kind": "offline", "label": str}`  (non-clickable header)
+    """
+    device_names = {d["name"] for d in devices}
+    spec: list[dict] = []
+
+    saved_offline = selected is not None and selected not in device_names
+    if saved_offline:
+        spec.append({"kind": "offline", "label": f"Saved: {selected} (offline)"})
+        spec.append({"kind": "separator"})
+
+    # Default is active either when explicitly chosen (selected is None) or
+    # when the saved device is offline (fell back at runtime).
+    default_active = selected is None or saved_offline
+    spec.append({
+        "kind": "device",
+        "name": None,
+        "label": "System Default",
+        "checked": default_active,
+    })
+
+    if devices:
+        spec.append({"kind": "separator"})
+        for d in sorted(devices, key=lambda x: x["name"].lower()):
+            spec.append({
+                "kind": "device",
+                "name": d["name"],
+                "label": d["name"],
+                "checked": (d["name"] == selected),
+            })
+
+    return spec
+
+
 _UPDATE_CHECK_INTERVAL_SECONDS = 24 * 3600
 _UPDATE_STATE_PATH = Path.home() / ".config" / "sabbel" / "update-check.json"
 _RELEASES_LATEST_URL = (
