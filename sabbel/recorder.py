@@ -30,25 +30,61 @@ def list_input_devices() -> list[dict]:
 
 
 class AudioRecorder:
-    def __init__(self, min_duration_seconds: float = 0.5):
+    def __init__(self, min_duration_seconds: float = 0.5, device: str | None = None):
         self._queue: queue.Queue[np.ndarray] = queue.Queue()
         self._min_samples = int(min_duration_seconds * SAMPLE_RATE)
         self._stream: sd.InputStream | None = None
+        self._device: str | None = device
+        self.last_fallback: str | None = None
 
     def _audio_callback(self, indata: np.ndarray, frames: int, time_info, status):
         if status:
             print(f"sounddevice status: {status}")
         self._queue.put(indata.copy())
 
+    def _resolve_device(self) -> tuple[int | None, str | None]:
+        """Resolve `self._device` to a PortAudio index.
+
+        Returns `(index_or_None, fallback_name_or_None)`.
+        - If `self._device is None` → `(None, None)` (system default).
+        - If exact name match found → `(index, None)`.
+        - If not found → `(None, self._device)` (fallback, caller should notify).
+        """
+        if self._device is None:
+            return (None, None)
+        try:
+            devices = sd.query_devices()
+        except Exception:
+            logging.debug("query_devices failed during resolve", exc_info=True)
+            return (None, self._device)
+        for i, d in enumerate(devices):
+            if d.get("max_input_channels", 0) > 0 and d.get("name") == self._device:
+                return (d.get("index", i), None)
+        return (None, self._device)
+
+    def set_device(self, name: str | None) -> None:
+        """Change the input device. Closes the cached stream so the next
+        `start()` re-opens with the new selection.
+        """
+        self._device = name
+        if self._stream is not None:
+            if self._stream.active:
+                self._stream.stop()
+            self._stream.close()
+            self._stream = None
+
     def start(self):
         while not self._queue.empty():
             self._queue.get()
         if self._stream is None:
+            device_index, fallback = self._resolve_device()
+            self.last_fallback = fallback
             self._stream = sd.InputStream(
                 samplerate=SAMPLE_RATE,
                 channels=CHANNELS,
                 dtype=DTYPE,
                 blocksize=BLOCK_SIZE,
+                device=device_index,
                 callback=self._audio_callback,
             )
         self._stream.start()
