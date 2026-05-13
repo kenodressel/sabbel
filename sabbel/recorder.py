@@ -23,9 +23,9 @@ def list_input_devices() -> list[dict]:
         logging.debug("query_devices failed", exc_info=True)
         return []
     result = []
-    for d in devices:
+    for i, d in enumerate(devices):
         if d.get("max_input_channels", 0) > 0:
-            result.append({"name": d["name"], "index": d.get("index", devices.index(d))})
+            result.append({"name": d["name"], "index": d.get("index", i)})
     return result
 
 

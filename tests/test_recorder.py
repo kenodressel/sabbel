@@ -108,6 +108,7 @@ def test_list_input_devices_filters_output_only():
 
 
 def test_list_input_devices_handles_query_error():
-    with patch("sabbel.recorder.sd.query_devices", side_effect=OSError("PortAudio error")):
+    import sounddevice as sd
+    with patch("sabbel.recorder.sd.query_devices", side_effect=sd.PortAudioError("PortAudio error")):
         from sabbel.recorder import list_input_devices
         assert list_input_devices() == []
