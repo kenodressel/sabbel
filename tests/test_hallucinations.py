@@ -85,3 +85,17 @@ def test_is_known_phantom_dots():
     assert is_known_phantom("...") is True
     # And after whitespace normalization
     assert is_known_phantom("  ...  ") is True
+
+
+def test_is_known_phantom_you_variants():
+    # Whisper "you" phantom (single word on noise) — surface variants all match
+    assert is_known_phantom("you") is True
+    assert is_known_phantom("You.") is True
+    assert is_known_phantom("YOU") is True
+
+
+def test_is_known_phantom_you_not_in_longer_phrase():
+    # Single-word "you" phantom must NOT block longer speech
+    assert is_known_phantom("Thank you very much") is False
+    assert is_known_phantom("I heard you") is False
+    assert is_known_phantom("you are welcome") is False
