@@ -10,7 +10,7 @@ import sounddevice as sd
 from PyObjCTools.AppHelper import callAfter
 
 from sabbel.config import SabbelConfig
-from sabbel.recorder import AudioRecorder
+from sabbel.recorder import AudioRecorder, list_input_devices
 from sabbel.transcriber import TranscriptionEngine
 from sabbel.hotkey import HotkeyManager
 from sabbel.injector import inject_text
@@ -198,6 +198,7 @@ class SabbelApp(rumps.App):
         self._history_path = Path.home() / ".config" / "sabbel" / "history.log"
         prefs = load_preferences()
         self._history_enabled = prefs.get("history_enabled", config.history_enabled)
+        self._audio_device: str | None = prefs.get("audio_device")
 
         # Menu — language cycle: Auto → Deutsch → English → Auto
         from sabbel import __version__
@@ -219,6 +220,10 @@ class SabbelApp(rumps.App):
         history_item.add(rumps.MenuItem("Open log", callback=self._open_history))
         history_item.add(rumps.MenuItem("Clear log", callback=self._clear_history))
         menu_items.append(history_item)
+        # Microphone submenu — built fresh on every menu-open via NSMenuDelegate (see Task 6).
+        self._mic_menu = rumps.MenuItem("Microphone")
+        self._rebuild_mic_menu()
+        menu_items.append(self._mic_menu)
         # Update check only makes sense on built releases, not local dev runs.
         if self._version != "dev":
             self._update_item = rumps.MenuItem(
@@ -234,6 +239,7 @@ class SabbelApp(rumps.App):
         # Components
         self._recorder = AudioRecorder(
             min_duration_seconds=config.min_duration_seconds,
+            device=self._audio_device,
         )
         self._transcriber = TranscriptionEngine(
             model_repo=config.model_repo,
@@ -357,6 +363,41 @@ class SabbelApp(rumps.App):
             )
         except Exception:
             logging.exception("Failed to clear history")
+
+    def _rebuild_mic_menu(self):
+        """Repopulate the Microphone submenu from current device state."""
+        devices = list_input_devices()
+        spec = _build_mic_menu_spec(devices=devices, selected=self._audio_device)
+        self._mic_menu.clear()
+        for item in spec:
+            if item["kind"] == "separator":
+                self._mic_menu.add(rumps.separator)
+                continue
+            if item["kind"] == "offline":
+                # Non-clickable header: rumps shows items without a callback as greyed.
+                header = rumps.MenuItem(item["label"])
+                self._mic_menu.add(header)
+                continue
+            # device
+            menu_item = rumps.MenuItem(
+                item["label"],
+                callback=self._on_mic_select,
+            )
+            menu_item.state = 1 if item["checked"] else 0
+            # Stash the device name so the callback can recover it. rumps gives
+            # us `sender.title` but that's the label, which equals the name for
+            # real devices but is "System Default" for the None entry.
+            menu_item._sabbel_device_name = item["name"]
+            self._mic_menu.add(menu_item)
+
+    def _on_mic_select(self, sender):
+        new_device = getattr(sender, "_sabbel_device_name", None)
+        if new_device == self._audio_device:
+            return
+        self._audio_device = new_device
+        self._recorder.set_device(new_device)
+        save_preference("audio_device", new_device)
+        self._rebuild_mic_menu()
 
     def _on_update_click(self, _):
         """Click handler for the update menu item.
