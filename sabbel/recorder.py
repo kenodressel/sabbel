@@ -35,7 +35,7 @@ class AudioRecorder:
         self._min_samples = int(min_duration_seconds * SAMPLE_RATE)
         self._stream: sd.InputStream | None = None
         self._device: str | None = device
-        self.last_fallback: str | None = None
+        self.last_missing_device: str | None = None
 
     def _audio_callback(self, indata: np.ndarray, frames: int, time_info, status):
         if status:
@@ -45,10 +45,10 @@ class AudioRecorder:
     def _resolve_device(self) -> tuple[int | None, str | None]:
         """Resolve `self._device` to a PortAudio index.
 
-        Returns `(index_or_None, fallback_name_or_None)`.
+        Returns `(index_or_None, missing_name_or_None)`.
         - If `self._device is None` → `(None, None)` (system default).
         - If exact name match found → `(index, None)`.
-        - If not found → `(None, self._device)` (fallback, caller should notify).
+        - If not found → `(None, self._device)` (missing, caller should notify).
         """
         if self._device is None:
             return (None, None)
@@ -63,8 +63,11 @@ class AudioRecorder:
         return (None, self._device)
 
     def set_device(self, name: str | None) -> None:
-        """Change the input device. Closes the cached stream so the next
-        `start()` re-opens with the new selection.
+        """Change the input device.
+
+        PortAudio binds a device at stream-open time, so the cached stream
+        (if any) must be closed and re-opened on the next `start()` call
+        to pick up the new selection.
         """
         self._device = name
         if self._stream is not None:
@@ -77,8 +80,8 @@ class AudioRecorder:
         while not self._queue.empty():
             self._queue.get()
         if self._stream is None:
-            device_index, fallback = self._resolve_device()
-            self.last_fallback = fallback
+            device_index, missing = self._resolve_device()
+            self.last_missing_device = missing
             self._stream = sd.InputStream(
                 samplerate=SAMPLE_RATE,
                 channels=CHANNELS,

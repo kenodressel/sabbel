@@ -57,7 +57,7 @@ def test_start_initializes_stream_lazily(mock_input_stream):
     recorder._min_samples = 8000
     recorder._stream = None
     recorder._device = None
-    recorder.last_fallback = None
+    recorder.last_missing_device = None
 
     stream = MagicMock()
     mock_input_stream.return_value = stream
@@ -154,13 +154,13 @@ def test_start_resolves_known_device_to_index(mock_input_stream, mock_query):
     recorder._min_samples = 8000
     recorder._stream = None
     recorder._device = "Dell WD22 Mic"
-    recorder.last_fallback = None
+    recorder.last_missing_device = None
 
     recorder.start()
 
     call_kwargs = mock_input_stream.call_args.kwargs
     assert call_kwargs["device"] == 2
-    assert recorder.last_fallback is None
+    assert recorder.last_missing_device is None
 
 
 @patch("sabbel.recorder.sd.query_devices")
@@ -174,13 +174,13 @@ def test_start_unknown_device_falls_back_to_default(mock_input_stream, mock_quer
     recorder._min_samples = 8000
     recorder._stream = None
     recorder._device = "Dell WD22 Mic"
-    recorder.last_fallback = None
+    recorder.last_missing_device = None
 
     recorder.start()
 
     call_kwargs = mock_input_stream.call_args.kwargs
     assert call_kwargs["device"] is None
-    assert recorder.last_fallback == "Dell WD22 Mic"
+    assert recorder.last_missing_device == "Dell WD22 Mic"
 
 
 @patch("sabbel.recorder.sd.query_devices")
@@ -191,17 +191,17 @@ def test_start_with_no_device_pref_uses_system_default(mock_input_stream, mock_q
     recorder._min_samples = 8000
     recorder._stream = None
     recorder._device = None
-    recorder.last_fallback = None
+    recorder.last_missing_device = None
 
     recorder.start()
 
     call_kwargs = mock_input_stream.call_args.kwargs
     assert call_kwargs["device"] is None
-    assert recorder.last_fallback is None
+    assert recorder.last_missing_device is None
     mock_query.assert_not_called()
 
 
 def test_constructor_accepts_device_param():
     recorder = AudioRecorder(min_duration_seconds=0.5, device="Dell WD22 Mic")
     assert recorder._device == "Dell WD22 Mic"
-    assert recorder.last_fallback is None
+    assert recorder.last_missing_device is None
