@@ -1,4 +1,6 @@
-from sabbel.app import _build_mic_menu_spec
+from unittest.mock import MagicMock
+import sabbel.app as app_mod
+from sabbel.app import _build_mic_menu_spec, SabbelApp
 
 
 def test_no_devices_only_default():
@@ -69,3 +71,54 @@ def test_case_mismatch_treats_saved_device_as_offline():
 
     assert default_item["checked"] is True
     assert all(not item["checked"] for item in real_devices)
+
+
+def test_on_mic_select_updates_state_then_recorder_then_pref_then_rebuild(monkeypatch):
+    """_on_mic_select must update local state, tell the recorder, persist,
+    and rebuild the menu — in that order. Regressions in ordering can cause
+    drift between the recorder's _device and the persisted pref.
+    """
+    app = object.__new__(SabbelApp)
+    app._audio_device = None
+    app._mic_device_map = {"Dell WD22 Mic": "Dell WD22 Mic"}
+
+    recorder = MagicMock()
+    app._recorder = recorder
+
+    calls = []
+    recorder.set_device.side_effect = lambda d: calls.append(("set_device", d))
+    monkeypatch.setattr(app_mod, "save_preference",
+                        lambda k, v: calls.append(("save_preference", k, v)))
+    app._rebuild_mic_menu = lambda: calls.append(("rebuild",))
+
+    sender = MagicMock()
+    sender.title = "Dell WD22 Mic"
+    app._on_mic_select(sender)
+
+    assert app._audio_device == "Dell WD22 Mic"
+    assert calls == [
+        ("set_device", "Dell WD22 Mic"),
+        ("save_preference", "audio_device", "Dell WD22 Mic"),
+        ("rebuild",),
+    ]
+
+
+def test_on_mic_select_same_device_short_circuits(monkeypatch):
+    app = object.__new__(SabbelApp)
+    app._audio_device = "Dell WD22 Mic"
+    app._mic_device_map = {"Dell WD22 Mic": "Dell WD22 Mic"}
+
+    recorder = MagicMock()
+    app._recorder = recorder
+
+    calls = []
+    monkeypatch.setattr(app_mod, "save_preference",
+                        lambda k, v: calls.append(("save_preference", k, v)))
+    app._rebuild_mic_menu = lambda: calls.append(("rebuild",))
+
+    sender = MagicMock()
+    sender.title = "Dell WD22 Mic"
+    app._on_mic_select(sender)
+
+    recorder.set_device.assert_not_called()
+    assert calls == []  # no persistence, no rebuild

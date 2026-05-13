@@ -220,6 +220,9 @@ class SabbelApp(rumps.App):
         history_item.add(rumps.MenuItem("Open log", callback=self._open_history))
         history_item.add(rumps.MenuItem("Clear log", callback=self._clear_history))
         menu_items.append(history_item)
+        # Maps menu-item label → device name (None for "System Default").
+        # Built by _rebuild_mic_menu; consumed by _on_mic_select.
+        self._mic_device_map: dict[str, str | None] = {}
         # Microphone submenu — built fresh on every menu-open via NSMenuDelegate (see Task 6).
         self._mic_menu = rumps.MenuItem("Microphone")
         self._rebuild_mic_menu()
@@ -368,14 +371,18 @@ class SabbelApp(rumps.App):
         """Repopulate the Microphone submenu from current device state."""
         devices = list_input_devices()
         spec = _build_mic_menu_spec(devices=devices, selected=self._audio_device)
+        self._mic_device_map.clear()
         self._mic_menu.clear()
         for item in spec:
             if item["kind"] == "separator":
                 self._mic_menu.add(rumps.separator)
                 continue
             if item["kind"] == "offline":
-                # Non-clickable header: rumps shows items without a callback as greyed.
+                # Greyed/non-clickable header. rumps doesn't auto-disable items
+                # without callbacks (they stay enabled but do nothing on click),
+                # so we disable via the underlying NSMenuItem explicitly.
                 header = rumps.MenuItem(item["label"])
+                header._menuitem.setEnabled_(False)
                 self._mic_menu.add(header)
                 continue
             # device
@@ -384,14 +391,11 @@ class SabbelApp(rumps.App):
                 callback=self._on_mic_select,
             )
             menu_item.state = 1 if item["checked"] else 0
-            # Stash the device name so the callback can recover it. rumps gives
-            # us `sender.title` but that's the label, which equals the name for
-            # real devices but is "System Default" for the None entry.
-            menu_item._sabbel_device_name = item["name"]
+            self._mic_device_map[item["label"]] = item["name"]
             self._mic_menu.add(menu_item)
 
     def _on_mic_select(self, sender):
-        new_device = getattr(sender, "_sabbel_device_name", None)
+        new_device = self._mic_device_map.get(sender.title)
         if new_device == self._audio_device:
             return
         self._audio_device = new_device
