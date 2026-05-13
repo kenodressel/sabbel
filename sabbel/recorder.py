@@ -34,6 +34,7 @@ class AudioRecorder:
         self._queue: queue.Queue[np.ndarray] = queue.Queue()
         self._min_samples = int(min_duration_seconds * SAMPLE_RATE)
         self._stream: sd.InputStream | None = None
+        self._stream_device_index: int | None = None
         self._device: str | None = device
         self.last_missing_device: str | None = None
 
@@ -75,13 +76,24 @@ class AudioRecorder:
                 self._stream.stop()
             self._stream.close()
             self._stream = None
+            self._stream_device_index = None
 
     def start(self):
         while not self._queue.empty():
             self._queue.get()
+
+        device_index, missing = self._resolve_device()
+        self.last_missing_device = missing
+
+        # If the cached stream is bound to a different device than what we
+        # just resolved (device was un/replugged, or index changed via hotplug),
+        # close it so we re-open against the right device.
+        if self._stream is not None and self._stream_device_index != device_index:
+            self._stream.close()
+            self._stream = None
+            self._stream_device_index = None
+
         if self._stream is None:
-            device_index, missing = self._resolve_device()
-            self.last_missing_device = missing
             self._stream = sd.InputStream(
                 samplerate=SAMPLE_RATE,
                 channels=CHANNELS,
@@ -90,7 +102,30 @@ class AudioRecorder:
                 device=device_index,
                 callback=self._audio_callback,
             )
-        self._stream.start()
+            self._stream_device_index = device_index
+
+        try:
+            self._stream.start()
+        except sd.PortAudioError:
+            # The device disappeared between our resolve and the actual start
+            # (race) — drop the stream, surface the missing-device name, and
+            # retry against the system default. Re-raises if the default also
+            # fails, so the app's existing PortAudioError handler still kicks in.
+            logging.exception("Stream start failed; falling back to default")
+            self._stream.close()
+            self._stream = None
+            self._stream_device_index = None
+            self.last_missing_device = self._device
+            self._stream = sd.InputStream(
+                samplerate=SAMPLE_RATE,
+                channels=CHANNELS,
+                dtype=DTYPE,
+                blocksize=BLOCK_SIZE,
+                device=None,
+                callback=self._audio_callback,
+            )
+            self._stream_device_index = None
+            self._stream.start()
 
     def stop(self):
         if self._stream is not None and self._stream.active:

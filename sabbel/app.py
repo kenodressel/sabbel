@@ -242,7 +242,7 @@ class SabbelApp(rumps.App):
         # Maps menu-item label → device name (None for "System Default").
         # Built by _rebuild_mic_menu; consumed by _on_mic_select.
         self._mic_device_map: dict[str, str | None] = {}
-        # Microphone submenu — built fresh on every menu-open via NSMenuDelegate (see Task 6).
+        # Microphone submenu — built fresh on every menu-open via NSMenuDelegate.
         self._mic_menu = rumps.MenuItem("Microphone")
         self._rebuild_mic_menu()
         menu_items.append(self._mic_menu)

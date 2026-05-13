@@ -56,6 +56,7 @@ def test_start_initializes_stream_lazily(mock_input_stream):
     recorder._queue = __import__("queue").Queue()
     recorder._min_samples = 8000
     recorder._stream = None
+    recorder._stream_device_index = None
     recorder._device = None
     recorder.last_missing_device = None
 
@@ -122,6 +123,7 @@ def test_set_device_closes_existing_stream():
     stream = MagicMock()
     stream.active = True
     recorder._stream = stream
+    recorder._stream_device_index = 2  # add this
 
     recorder.set_device("Dell WD22 Mic")
 
@@ -129,6 +131,7 @@ def test_set_device_closes_existing_stream():
     stream.stop.assert_called_once()
     stream.close.assert_called_once()
     assert recorder._stream is None
+    assert recorder._stream_device_index is None  # add this
 
 
 def test_set_device_with_no_active_stream_just_updates():
@@ -153,6 +156,7 @@ def test_start_resolves_known_device_to_index(mock_input_stream, mock_query):
     recorder._queue = __import__("queue").Queue()
     recorder._min_samples = 8000
     recorder._stream = None
+    recorder._stream_device_index = None
     recorder._device = "Dell WD22 Mic"
     recorder.last_missing_device = None
 
@@ -173,6 +177,7 @@ def test_start_unknown_device_falls_back_to_default(mock_input_stream, mock_quer
     recorder._queue = __import__("queue").Queue()
     recorder._min_samples = 8000
     recorder._stream = None
+    recorder._stream_device_index = None
     recorder._device = "Dell WD22 Mic"
     recorder.last_missing_device = None
 
@@ -190,6 +195,7 @@ def test_start_with_no_device_pref_uses_system_default(mock_input_stream, mock_q
     recorder._queue = __import__("queue").Queue()
     recorder._min_samples = 8000
     recorder._stream = None
+    recorder._stream_device_index = None
     recorder._device = None
     recorder.last_missing_device = None
 
@@ -205,3 +211,79 @@ def test_constructor_accepts_device_param():
     recorder = AudioRecorder(min_duration_seconds=0.5, device="Dell WD22 Mic")
     assert recorder._device == "Dell WD22 Mic"
     assert recorder.last_missing_device is None
+
+
+@patch("sabbel.recorder.sd.query_devices")
+@patch("sabbel.recorder.sd.InputStream")
+def test_start_invalidates_cached_stream_when_device_reappears(mock_input_stream, mock_query):
+    """Scenario: dock unplugged → recorded with default → dock replugged → next
+    recording must re-open against dock, not reuse the system-default stream.
+    """
+    # First resolve: only internal mic available (Dell missing)
+    # Second resolve: Dell back at index 2
+    mock_query.side_effect = [
+        [{"name": "MacBook Pro Microphone", "index": 0, "max_input_channels": 1}],
+        [
+            {"name": "MacBook Pro Microphone", "index": 0, "max_input_channels": 1},
+            {"name": "Dell WD22 Mic", "index": 2, "max_input_channels": 2},
+        ],
+    ]
+    streams = [MagicMock(), MagicMock()]
+    mock_input_stream.side_effect = streams
+
+    recorder = AudioRecorder.__new__(AudioRecorder)
+    recorder._queue = __import__("queue").Queue()
+    recorder._min_samples = 8000
+    recorder._stream = None
+    recorder._stream_device_index = None
+    recorder._device = "Dell WD22 Mic"
+    recorder.last_missing_device = None
+
+    # First call: Dell missing → opens with device=None
+    recorder.start()
+    assert mock_input_stream.call_args_list[0].kwargs["device"] is None
+    assert recorder.last_missing_device == "Dell WD22 Mic"
+    assert recorder._stream is streams[0]
+    assert recorder._stream_device_index is None
+
+    # Second call: Dell back → must close stream-0 and open stream-1 on index 2
+    recorder.start()
+    streams[0].close.assert_called_once()
+    assert mock_input_stream.call_args_list[1].kwargs["device"] == 2
+    assert recorder.last_missing_device is None
+    assert recorder._stream is streams[1]
+    assert recorder._stream_device_index == 2
+
+
+@patch("sabbel.recorder.sd.query_devices")
+@patch("sabbel.recorder.sd.InputStream")
+def test_start_invalidates_cached_stream_when_device_disappears(mock_input_stream, mock_query):
+    """Scenario: dock was present and used → next recording must close the
+    dock-bound stream and re-open against the system default when dock unplugged.
+    """
+    mock_query.side_effect = [
+        [
+            {"name": "MacBook Pro Microphone", "index": 0, "max_input_channels": 1},
+            {"name": "Dell WD22 Mic", "index": 2, "max_input_channels": 2},
+        ],
+        [{"name": "MacBook Pro Microphone", "index": 0, "max_input_channels": 1}],
+    ]
+    streams = [MagicMock(), MagicMock()]
+    mock_input_stream.side_effect = streams
+
+    recorder = AudioRecorder.__new__(AudioRecorder)
+    recorder._queue = __import__("queue").Queue()
+    recorder._min_samples = 8000
+    recorder._stream = None
+    recorder._stream_device_index = None
+    recorder._device = "Dell WD22 Mic"
+    recorder.last_missing_device = None
+
+    recorder.start()
+    assert recorder._stream_device_index == 2
+
+    recorder.start()
+    streams[0].close.assert_called_once()
+    assert mock_input_stream.call_args_list[1].kwargs["device"] is None
+    assert recorder.last_missing_device == "Dell WD22 Mic"
+    assert recorder._stream_device_index is None
