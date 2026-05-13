@@ -7,6 +7,8 @@ from pathlib import Path
 import numpy as np
 import rumps
 import sounddevice as sd
+import objc
+from Foundation import NSObject
 from PyObjCTools.AppHelper import callAfter
 
 from sabbel.config import SabbelConfig
@@ -20,6 +22,23 @@ from sabbel.preferences import load_preferences, save_preference
 
 # Spinner frames for processing animation
 _SPINNER = ["◐", "◓", "◑", "◒"]
+
+
+class _MicMenuDelegate(NSObject):
+    """NSMenuDelegate that asks the app to rebuild the mic submenu before display."""
+
+    def initWithCallback_(self, callback):
+        self = objc.super(_MicMenuDelegate, self).init()
+        if self is None:
+            return None
+        self._callback = callback
+        return self
+
+    def menuWillOpen_(self, menu):
+        try:
+            self._callback()
+        except Exception:
+            logging.exception("Mic menu refresh failed")
 
 
 def _normalize_language(language: str | None) -> str | None:
@@ -237,6 +256,8 @@ class SabbelApp(rumps.App):
             self._update_item = None
         menu_items.extend([None, self._version_item])
         self.menu = menu_items
+        self._mic_delegate = None  # Hold ref so PyObjC doesn't release it.
+        self._attach_mic_menu_delegate()
         self._lang_item.set_callback(self._cycle_language)
 
         # Components
@@ -272,6 +293,30 @@ class SabbelApp(rumps.App):
     def _cycle_language(self, sender):
         self._language = _next_language(self._language)
         sender.title = _language_menu_title(self._language)
+
+    def _attach_mic_menu_delegate(self):
+        """Hook NSMenuDelegate.menuWillOpen_ so the device list refreshes
+        on every menu-open. If anything in this PyObjC plumbing fails,
+        fall back to a manual 'Refresh devices' item appended to the submenu.
+        """
+        try:
+            ns_menu = self._mic_menu._menuitem.submenu()
+            if ns_menu is None:
+                raise RuntimeError("No submenu present yet")
+            delegate = _MicMenuDelegate.alloc().initWithCallback_(
+                lambda: callAfter(self._rebuild_mic_menu)
+            )
+            ns_menu.setDelegate_(delegate)
+            self._mic_delegate = delegate
+        except Exception:
+            logging.warning(
+                "NSMenuDelegate hookup failed, falling back to manual refresh",
+                exc_info=True,
+            )
+            self._mic_menu.add(rumps.separator)
+            self._mic_menu.add(
+                rumps.MenuItem("Refresh devices", callback=lambda _: self._rebuild_mic_menu())
+            )
 
     def run(self, **kwargs):
         # Create error reset timer (stopped, reused)
