@@ -535,6 +535,7 @@ class SabbelApp(rumps.App):
             self._recorder.start()
         except sd.PortAudioError:
             logging.exception("Recorder error")
+            self._recorder.last_missing_device = None
             callAfter(lambda: self._show_error("Mic error"))
             return
         missing = self._recorder.last_missing_device

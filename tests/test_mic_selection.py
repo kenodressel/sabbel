@@ -122,3 +122,43 @@ def test_on_mic_select_same_device_short_circuits(monkeypatch):
 
     recorder.set_device.assert_not_called()
     assert calls == []  # no persistence, no rebuild
+
+
+def test_on_recording_start_notifies_on_missing_device(monkeypatch):
+    """When the recorder reports a missing device after start(), the app
+    must schedule a fallback notification and clear last_missing_device.
+    """
+    app = object.__new__(SabbelApp)
+    app._model_ready = True
+    recorder = MagicMock()
+    recorder.last_missing_device = "Dell WD22 Mic"
+    app._recorder = recorder
+
+    queued = []
+    monkeypatch.setattr("sabbel.app.callAfter", lambda fn: queued.append(fn))
+
+    app._on_recording_start()
+
+    # last_missing_device cleared so repeat recordings don't re-notify
+    assert recorder.last_missing_device is None
+    # Two callbacks scheduled: notification, then _set_recording
+    assert len(queued) == 2
+
+
+def test_on_recording_start_no_notification_when_device_present(monkeypatch):
+    """When the recorder reports no missing device, only the recording-state
+    callback is scheduled.
+    """
+    app = object.__new__(SabbelApp)
+    app._model_ready = True
+    recorder = MagicMock()
+    recorder.last_missing_device = None
+    app._recorder = recorder
+
+    queued = []
+    monkeypatch.setattr("sabbel.app.callAfter", lambda fn: queued.append(fn))
+
+    app._on_recording_start()
+
+    # Only _set_recording was scheduled
+    assert len(queued) == 1
