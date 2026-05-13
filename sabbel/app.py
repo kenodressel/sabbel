@@ -16,7 +16,13 @@ from sabbel.recorder import AudioRecorder, list_input_devices
 from sabbel.transcriber import TranscriptionEngine
 from sabbel.hotkey import HotkeyManager
 from sabbel.injector import inject_text
-from sabbel.dictionary import load_dictionary, apply_replacements, get_initial_prompt
+from sabbel.dictionary import (
+    load_dictionary,
+    apply_replacements,
+    get_initial_prompt,
+    get_phantom_phrases,
+)
+from sabbel.hallucinations import looks_like_hallucination
 from sabbel.permissions import check_accessibility, check_microphone
 from sabbel.preferences import load_preferences, save_preference
 
@@ -690,6 +696,12 @@ class SabbelApp(rumps.App):
             if not text:
                 logging.info("Recording rejected: empty transcription")
                 callAfter(lambda: self._show_error("Not recognized"))
+                continue
+
+            extra_phantoms = get_phantom_phrases(self._dictionary)
+            if looks_like_hallucination(text, extra_phantoms):
+                logging.info("Filtered hallucination: %r", text[:120])
+                callAfter(lambda: self._show_error("Likely noise"))
                 continue
 
             # Apply dictionary replacements
