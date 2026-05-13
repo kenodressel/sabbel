@@ -243,8 +243,10 @@ class SabbelApp(rumps.App):
         # Built by _rebuild_mic_menu; consumed by _on_mic_select.
         self._mic_device_map: dict[str, str | None] = {}
         # Microphone submenu — built fresh on every menu-open via NSMenuDelegate.
+        # Initial population is deferred until after `self.menu = menu_items`
+        # because rumps only attaches the backing NSMenu when the MenuItem is
+        # added to a parent menu — calling .clear() before then explodes.
         self._mic_menu = rumps.MenuItem("Microphone")
-        self._rebuild_mic_menu()
         menu_items.append(self._mic_menu)
         # Update check only makes sense on built releases, not local dev runs.
         if self._version != "dev":
@@ -256,6 +258,7 @@ class SabbelApp(rumps.App):
             self._update_item = None
         menu_items.extend([None, self._version_item])
         self.menu = menu_items
+        self._rebuild_mic_menu()
         self._mic_delegate = None  # Hold ref so PyObjC doesn't release it.
         self._attach_mic_menu_delegate()
         self._lang_item.set_callback(self._cycle_language)
