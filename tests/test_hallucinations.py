@@ -1,4 +1,4 @@
-from sabbel.hallucinations import _normalize, is_known_phantom
+from sabbel.hallucinations import _normalize, is_known_phantom, is_repetition_hallucination
 
 
 def test_normalize_strips_whitespace():
@@ -100,8 +100,6 @@ def test_is_known_phantom_you_not_in_longer_phrase():
     assert is_known_phantom("I heard you") is False
     assert is_known_phantom("you are welcome") is False
 
-
-from sabbel.hallucinations import is_repetition_hallucination
 
 
 def test_repetition_empty():

@@ -110,11 +110,11 @@ def is_repetition_hallucination(text: str) -> bool:
             continue
         for start in range(len(tokens) - n * 3 + 1):
             ngram = tokens[start:start + n]
-            reps = 1
+            count = 1
             i = start + n
             while i + n <= len(tokens) and tokens[i:i + n] == ngram:
-                reps += 1
+                count += 1
                 i += n
-                if reps >= 3:
+                if count >= 3:
                     return True
     return False
