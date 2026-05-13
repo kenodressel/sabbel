@@ -118,3 +118,12 @@ def is_repetition_hallucination(text: str) -> bool:
                 if count >= 3:
                     return True
     return False
+
+
+def looks_like_hallucination(
+    text: str, extra_phrases: list[str] | None = None
+) -> bool:
+    """Convenience: True iff either detector flags `text`."""
+    return is_repetition_hallucination(text) or is_known_phantom(
+        text, extra_phrases
+    )

@@ -1,4 +1,4 @@
-from sabbel.hallucinations import _normalize, is_known_phantom, is_repetition_hallucination
+from sabbel.hallucinations import _normalize, is_known_phantom, is_repetition_hallucination, looks_like_hallucination
 
 
 def test_normalize_strips_whitespace():
@@ -157,3 +157,21 @@ def test_repetition_embedded_repeat_in_real_text_not_flagged():
     assert is_repetition_hallucination(
         "ich habe gesagt hallo welt hallo welt und dann ging ich"
     ) is False
+
+
+def test_looks_like_hallucination_repetition_path():
+    assert looks_like_hallucination("CR CR CR CR") is True
+
+
+def test_looks_like_hallucination_phantom_path():
+    assert looks_like_hallucination("Thank you.") is True
+
+
+def test_looks_like_hallucination_real_speech_passes():
+    assert looks_like_hallucination("the cat sat on the mat") is False
+
+
+def test_looks_like_hallucination_extra_phrases_threaded_through():
+    assert looks_like_hallucination(
+        "hello", extra_phrases=["Hello"]
+    ) is True
