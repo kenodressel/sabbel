@@ -43,6 +43,17 @@ class AudioRecorder:
             print(f"sounddevice status: {status}")
         self._queue.put(indata.copy())
 
+    def _open_stream(self, device_index: int | None) -> None:
+        self._stream = sd.InputStream(
+            samplerate=SAMPLE_RATE,
+            channels=CHANNELS,
+            dtype=DTYPE,
+            blocksize=BLOCK_SIZE,
+            device=device_index,
+            callback=self._audio_callback,
+        )
+        self._stream_device_index = device_index
+
     def _resolve_device(self) -> tuple[int | None, str | None]:
         """Resolve `self._device` to a PortAudio index.
 
@@ -93,38 +104,26 @@ class AudioRecorder:
             self._stream = None
             self._stream_device_index = None
 
-        if self._stream is None:
-            self._stream = sd.InputStream(
-                samplerate=SAMPLE_RATE,
-                channels=CHANNELS,
-                dtype=DTYPE,
-                blocksize=BLOCK_SIZE,
-                device=device_index,
-                callback=self._audio_callback,
-            )
-            self._stream_device_index = device_index
-
         try:
+            if self._stream is None:
+                self._open_stream(device_index)
             self._stream.start()
         except sd.PortAudioError:
             # The device disappeared between our resolve and the actual start
             # (race) — drop the stream, surface the missing-device name, and
             # retry against the system default. Re-raises if the default also
             # fails, so the app's existing PortAudioError handler still kicks in.
-            logging.exception("Stream start failed; falling back to default")
-            self._stream.close()
+            if self._stream is not None:
+                self._stream.close()
             self._stream = None
             self._stream_device_index = None
+
+            if self._device is None or device_index is None:
+                raise
+
+            logging.exception("Configured stream failed; falling back to default")
             self.last_missing_device = self._device
-            self._stream = sd.InputStream(
-                samplerate=SAMPLE_RATE,
-                channels=CHANNELS,
-                dtype=DTYPE,
-                blocksize=BLOCK_SIZE,
-                device=None,
-                callback=self._audio_callback,
-            )
-            self._stream_device_index = None
+            self._open_stream(None)
             self._stream.start()
 
     def stop(self):

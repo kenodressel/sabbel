@@ -248,6 +248,8 @@ class SabbelApp(rumps.App):
         # added to a parent menu — calling .clear() before then explodes.
         self._mic_menu = rumps.MenuItem("Microphone")
         menu_items.append(self._mic_menu)
+        self._mic_manual_refresh = False
+        self._notified_missing_device: str | None = None
         # Update check only makes sense on built releases, not local dev runs.
         if self._version != "dev":
             self._update_item = rumps.MenuItem(
@@ -316,10 +318,8 @@ class SabbelApp(rumps.App):
                 "NSMenuDelegate hookup failed, falling back to manual refresh",
                 exc_info=True,
             )
-            self._mic_menu.add(rumps.separator)
-            self._mic_menu.add(
-                rumps.MenuItem("Refresh devices", callback=lambda _: self._rebuild_mic_menu())
-            )
+            self._mic_manual_refresh = True
+            self._add_mic_refresh_item()
 
     def run(self, **kwargs):
         # Create error reset timer (stopped, reused)
@@ -445,12 +445,24 @@ class SabbelApp(rumps.App):
             menu_item.state = 1 if item["checked"] else 0
             self._mic_device_map[item["label"]] = item["name"]
             self._mic_menu.add(menu_item)
+        if getattr(self, "_mic_manual_refresh", False):
+            self._add_mic_refresh_item()
+
+    def _add_mic_refresh_item(self):
+        self._mic_menu.add(rumps.separator)
+        self._mic_menu.add(
+            rumps.MenuItem(
+                "Refresh devices",
+                callback=lambda _: self._rebuild_mic_menu(),
+            )
+        )
 
     def _on_mic_select(self, sender):
         new_device = self._mic_device_map.get(sender.title)
         if new_device == self._audio_device:
             return
         self._audio_device = new_device
+        self._notified_missing_device = None
         self._recorder.set_device(new_device)
         save_preference("audio_device", new_device)
         self._rebuild_mic_menu()
@@ -593,7 +605,11 @@ class SabbelApp(rumps.App):
         missing = self._recorder.last_missing_device
         if missing:
             self._recorder.last_missing_device = None
-            callAfter(lambda name=missing: self._notify_mic_fallback(name))
+            if missing != self._notified_missing_device:
+                self._notified_missing_device = missing
+                callAfter(lambda name=missing: self._notify_mic_fallback(name))
+        else:
+            self._notified_missing_device = None
         callAfter(self._set_recording)
 
     def _on_recording_stop(self):

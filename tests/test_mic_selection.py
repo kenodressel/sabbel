@@ -130,6 +130,7 @@ def test_on_recording_start_notifies_on_missing_device(monkeypatch):
     """
     app = object.__new__(SabbelApp)
     app._model_ready = True
+    app._notified_missing_device = None
     recorder = MagicMock()
     recorder.last_missing_device = "Dell WD22 Mic"
     app._recorder = recorder
@@ -145,12 +146,36 @@ def test_on_recording_start_notifies_on_missing_device(monkeypatch):
     assert len(queued) == 2
 
 
+def test_on_recording_start_notifies_missing_device_once_until_available(monkeypatch):
+    app = object.__new__(SabbelApp)
+    app._model_ready = True
+    app._notified_missing_device = None
+    recorder = MagicMock()
+    app._recorder = recorder
+    app._notify_mic_fallback = MagicMock()
+    app._set_recording = MagicMock()
+
+    def report_missing():
+        recorder.last_missing_device = "Dell WD22 Mic"
+
+    recorder.start.side_effect = report_missing
+    monkeypatch.setattr("sabbel.app.callAfter", lambda fn: fn())
+
+    app._on_recording_start()
+    app._on_recording_start()
+
+    app._notify_mic_fallback.assert_called_once_with("Dell WD22 Mic")
+    assert app._set_recording.call_count == 2
+    assert recorder.last_missing_device is None
+
+
 def test_on_recording_start_no_notification_when_device_present(monkeypatch):
     """When the recorder reports no missing device, only the recording-state
     callback is scheduled.
     """
     app = object.__new__(SabbelApp)
     app._model_ready = True
+    app._notified_missing_device = "Dell WD22 Mic"
     recorder = MagicMock()
     recorder.last_missing_device = None
     app._recorder = recorder
@@ -162,6 +187,7 @@ def test_on_recording_start_no_notification_when_device_present(monkeypatch):
 
     # Only _set_recording was scheduled
     assert len(queued) == 1
+    assert app._notified_missing_device is None
 
 
 def test_rebuild_mic_menu_does_not_clear_empty_submenu(monkeypatch):
@@ -184,3 +210,22 @@ def test_rebuild_mic_menu_does_not_clear_empty_submenu(monkeypatch):
 
     # System Default should now be present.
     assert "System Default" in app._mic_menu
+
+
+def test_rebuild_mic_menu_preserves_manual_refresh_fallback(monkeypatch):
+    """If NSMenuDelegate hookup fails, every rebuild must keep the manual
+    refresh action available.
+    """
+    import rumps
+    app = object.__new__(SabbelApp)
+    app._audio_device = None
+    app._mic_device_map = {}
+    app._mic_manual_refresh = True
+    app._mic_menu = rumps.MenuItem("Microphone")
+    monkeypatch.setattr("sabbel.app.list_input_devices", lambda: [])
+
+    app._rebuild_mic_menu()
+    assert "Refresh devices" in app._mic_menu
+
+    app._rebuild_mic_menu()
+    assert list(app._mic_menu).count("Refresh devices") == 1

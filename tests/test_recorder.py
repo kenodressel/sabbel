@@ -190,6 +190,70 @@ def test_start_unknown_device_falls_back_to_default(mock_input_stream, mock_quer
 
 @patch("sabbel.recorder.sd.query_devices")
 @patch("sabbel.recorder.sd.InputStream")
+def test_start_falls_back_when_selected_stream_open_races_with_hotplug(mock_input_stream, mock_query):
+    import sounddevice as sd
+
+    mock_query.return_value = [
+        {"name": "MacBook Pro Microphone", "index": 0, "max_input_channels": 1},
+        {"name": "Dell WD22 Mic", "index": 2, "max_input_channels": 2},
+    ]
+    fallback_stream = MagicMock()
+    mock_input_stream.side_effect = [
+        sd.PortAudioError("selected device disappeared"),
+        fallback_stream,
+    ]
+
+    recorder = AudioRecorder.__new__(AudioRecorder)
+    recorder._queue = __import__("queue").Queue()
+    recorder._min_samples = 8000
+    recorder._stream = None
+    recorder._stream_device_index = None
+    recorder._device = "Dell WD22 Mic"
+    recorder.last_missing_device = None
+
+    recorder.start()
+
+    assert [call.kwargs["device"] for call in mock_input_stream.call_args_list] == [2, None]
+    fallback_stream.start.assert_called_once()
+    assert recorder.last_missing_device == "Dell WD22 Mic"
+    assert recorder._stream is fallback_stream
+    assert recorder._stream_device_index is None
+
+
+@patch("sabbel.recorder.sd.query_devices")
+@patch("sabbel.recorder.sd.InputStream")
+def test_start_falls_back_when_selected_stream_start_races_with_hotplug(mock_input_stream, mock_query):
+    import sounddevice as sd
+
+    mock_query.return_value = [
+        {"name": "MacBook Pro Microphone", "index": 0, "max_input_channels": 1},
+        {"name": "Dell WD22 Mic", "index": 2, "max_input_channels": 2},
+    ]
+    selected_stream = MagicMock()
+    selected_stream.start.side_effect = sd.PortAudioError("selected device disappeared")
+    fallback_stream = MagicMock()
+    mock_input_stream.side_effect = [selected_stream, fallback_stream]
+
+    recorder = AudioRecorder.__new__(AudioRecorder)
+    recorder._queue = __import__("queue").Queue()
+    recorder._min_samples = 8000
+    recorder._stream = None
+    recorder._stream_device_index = None
+    recorder._device = "Dell WD22 Mic"
+    recorder.last_missing_device = None
+
+    recorder.start()
+
+    assert [call.kwargs["device"] for call in mock_input_stream.call_args_list] == [2, None]
+    selected_stream.close.assert_called_once()
+    fallback_stream.start.assert_called_once()
+    assert recorder.last_missing_device == "Dell WD22 Mic"
+    assert recorder._stream is fallback_stream
+    assert recorder._stream_device_index is None
+
+
+@patch("sabbel.recorder.sd.query_devices")
+@patch("sabbel.recorder.sd.InputStream")
 def test_start_with_no_device_pref_uses_system_default(mock_input_stream, mock_query):
     recorder = AudioRecorder.__new__(AudioRecorder)
     recorder._queue = __import__("queue").Queue()
