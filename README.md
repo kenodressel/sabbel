@@ -131,6 +131,12 @@ max_bytes = 1000000    # Rotate log to .1 once it grows beyond this.
 
 > **⚠️ Privacy note:** History is off by default because transcriptions can include anything you dictate — including passwords, private notes, or confidential work data. Enable it only if you're comfortable with that trade-off. The log stays on your machine; nothing is uploaded.
 
+### Microphone
+
+Click the Sabbel menu → **Microphone** to pick which input device Sabbel records from. The list refreshes every time you open the menu, so plugging in a USB mic or docking station is reflected immediately. The choice persists across restarts.
+
+If the saved device is offline (e.g., dock unplugged), Sabbel falls back to the system default and shows a notification on the next recording. When the device comes back, it's used again automatically — no need to re-pick.
+
 ## Custom Dictionary
 
 Edit `~/.config/sabbel/dictionary.toml` to improve recognition for domain-specific terms:
