@@ -76,3 +76,45 @@ def is_known_phantom(text: str, extra_phrases: list[str] | None = None) -> bool:
         extras = {_normalize(p) for p in extra_phrases}
         return norm in extras
     return False
+
+
+def is_repetition_hallucination(text: str) -> bool:
+    """Return True iff `text` shows Whisper's repetition-hallucination
+    signature.
+
+    Two patterns flag as positive:
+    - 4+ identical tokens in a row (e.g., "CR CR CR CR").
+    - The same 2-, 3-, or 4-gram repeated 3+ times consecutively
+      (e.g., "Hallo Welt Hallo Welt Hallo Welt").
+
+    Texts with fewer than 4 whitespace-tokens never flag, so short
+    emphatic outputs like "ja ja ja" pass through unchanged.
+    """
+    tokens = text.split()
+    if len(tokens) < 4:
+        return False
+
+    # 4+ consecutive identical tokens.
+    run = 1
+    for i in range(1, len(tokens)):
+        if tokens[i] == tokens[i - 1]:
+            run += 1
+            if run >= 4:
+                return True
+        else:
+            run = 1
+
+    # 2-, 3-, or 4-gram repeated 3+ times consecutively.
+    for n in (2, 3, 4):
+        if len(tokens) < n * 3:
+            continue
+        for start in range(len(tokens) - n * 3 + 1):
+            ngram = tokens[start:start + n]
+            reps = 1
+            i = start + n
+            while i + n <= len(tokens) and tokens[i:i + n] == ngram:
+                reps += 1
+                i += n
+                if reps >= 3:
+                    return True
+    return False

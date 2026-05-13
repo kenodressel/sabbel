@@ -99,3 +99,63 @@ def test_is_known_phantom_you_not_in_longer_phrase():
     assert is_known_phantom("Thank you very much") is False
     assert is_known_phantom("I heard you") is False
     assert is_known_phantom("you are welcome") is False
+
+
+from sabbel.hallucinations import is_repetition_hallucination
+
+
+def test_repetition_empty():
+    assert is_repetition_hallucination("") is False
+
+
+def test_repetition_too_short_to_judge():
+    assert is_repetition_hallucination("hello") is False
+    assert is_repetition_hallucination("ja ja ja") is False  # 3 tokens, threshold is 4
+
+
+def test_repetition_no_repeat():
+    assert is_repetition_hallucination("the cat sat on the mat") is False
+
+
+def test_repetition_three_in_a_row_not_flagged():
+    assert is_repetition_hallucination("CR CR CR") is False
+
+
+def test_repetition_four_in_a_row_flagged():
+    assert is_repetition_hallucination("CR CR CR CR") is True
+    assert is_repetition_hallucination("CR CR CR CR CR") is True
+
+
+def test_repetition_emphatic_speech_flagged_known_false_positive():
+    # Documented in the spec as an accepted false positive: emphatic speech
+    # like "nein nein nein nein" looks identical to a 4-token hallucination.
+    assert is_repetition_hallucination("nein nein nein nein") is True
+
+
+def test_repetition_two_gram_three_times():
+    assert is_repetition_hallucination("Hallo Welt Hallo Welt Hallo Welt") is True
+
+
+def test_repetition_three_gram_three_times():
+    assert is_repetition_hallucination(
+        "ein zwei drei ein zwei drei ein zwei drei"
+    ) is True
+
+
+def test_repetition_four_gram_three_times():
+    assert is_repetition_hallucination(
+        "a b c d a b c d a b c d"
+    ) is True
+
+
+def test_repetition_two_gram_only_twice_not_flagged():
+    # 2-gram repeats only twice; not a hallucination signature.
+    assert is_repetition_hallucination("hello world hello world goodbye") is False
+
+
+def test_repetition_embedded_repeat_in_real_text_not_flagged():
+    # A short repeated phrase inside a longer text doesn't trigger if the
+    # run is below the n×3 consecutive-rep threshold.
+    assert is_repetition_hallucination(
+        "ich habe gesagt hallo welt hallo welt und dann ging ich"
+    ) is False
