@@ -351,3 +351,93 @@ def test_start_invalidates_cached_stream_when_device_disappears(mock_input_strea
     assert mock_input_stream.call_args_list[1].kwargs["device"] is None
     assert recorder.last_missing_device == "Dell WD22 Mic"
     assert recorder._stream_device_index is None
+
+
+def test_refresh_devices_closes_active_stream_and_cycles_portaudio(monkeypatch):
+    """refresh_devices must close any cached stream (Pa_Terminate would
+    invalidate it otherwise) and call _terminate then _initialize on sd.
+    """
+    recorder = AudioRecorder.__new__(AudioRecorder)
+    stream = MagicMock()
+    stream.active = True
+    recorder._stream = stream
+    recorder._stream_device_index = 2
+
+    calls = []
+    monkeypatch.setattr(
+        "sabbel.recorder.sd._terminate", lambda: calls.append("terminate")
+    )
+    monkeypatch.setattr(
+        "sabbel.recorder.sd._initialize", lambda: calls.append("initialize")
+    )
+
+    recorder.refresh_devices()
+
+    stream.stop.assert_called_once()
+    stream.close.assert_called_once()
+    assert recorder._stream is None
+    assert recorder._stream_device_index is None
+    # Order matters: terminate must run before initialize.
+    assert calls == ["terminate", "initialize"]
+
+
+def test_refresh_devices_with_no_stream_still_cycles_portaudio(monkeypatch):
+    recorder = AudioRecorder.__new__(AudioRecorder)
+    recorder._stream = None
+    recorder._stream_device_index = None
+
+    calls = []
+    monkeypatch.setattr(
+        "sabbel.recorder.sd._terminate", lambda: calls.append("terminate")
+    )
+    monkeypatch.setattr(
+        "sabbel.recorder.sd._initialize", lambda: calls.append("initialize")
+    )
+
+    recorder.refresh_devices()
+
+    assert calls == ["terminate", "initialize"]
+
+
+def test_refresh_devices_swallows_portaudio_errors(monkeypatch):
+    """A PA cycle failure must not propagate — Sabbel should keep running
+    even if device-enumeration refresh fails for some reason.
+    """
+    recorder = AudioRecorder.__new__(AudioRecorder)
+    recorder._stream = None
+    recorder._stream_device_index = None
+
+    def boom():
+        raise RuntimeError("PortAudio is having a bad day")
+
+    monkeypatch.setattr("sabbel.recorder.sd._terminate", boom)
+    monkeypatch.setattr("sabbel.recorder.sd._initialize", lambda: None)
+
+    # Should not raise.
+    recorder.refresh_devices()
+
+
+def test_start_calls_refresh_devices(monkeypatch):
+    """Every start() must refresh PA so the resolved device list reflects
+    the current macOS state (AirPods connect/disconnect, dock changes).
+    """
+    recorder = AudioRecorder.__new__(AudioRecorder)
+    recorder._queue = __import__("queue").Queue()
+    recorder._min_samples = 8000
+    recorder._stream = None
+    recorder._stream_device_index = None
+    recorder._device = None
+    recorder.last_missing_device = None
+
+    refresh_calls = []
+    monkeypatch.setattr(
+        AudioRecorder,
+        "refresh_devices",
+        lambda self: refresh_calls.append("refreshed"),
+    )
+
+    with patch("sabbel.recorder.sd.InputStream") as mock_input_stream:
+        mock_input_stream.return_value = MagicMock()
+        recorder.start()
+
+    assert refresh_calls == ["refreshed"]
