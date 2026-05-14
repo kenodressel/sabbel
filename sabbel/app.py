@@ -417,6 +417,13 @@ class SabbelApp(rumps.App):
 
     def _rebuild_mic_menu(self):
         """Repopulate the Microphone submenu from current device state."""
+        # Force PortAudio to re-enumerate so devices connected after Sabbel
+        # started (AirPods, dock-mic, USB cameras) become visible. Without
+        # this the submenu would reflect the device list from app launch.
+        # First call is from __init__ before self._recorder exists; PA was
+        # just initialized at import time so no refresh is needed there.
+        if hasattr(self, "_recorder"):
+            self._recorder.refresh_devices()
         devices = list_input_devices()
         spec = _build_mic_menu_spec(devices=devices, selected=self._audio_device)
         self._mic_device_map.clear()
