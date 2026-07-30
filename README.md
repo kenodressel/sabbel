@@ -154,6 +154,22 @@ text = "Im Sprint-Planning haben wir die OKRs und KPIs reviewed."
 
 Changes are picked up on the next dictation — no restart needed.
 
+### Hallucination filter
+
+Whisper sometimes produces canned phrases on silence or background noise — most commonly `"Thank you."` (English subtitle training data) or `"Untertitel im Auftrag des ZDF"` (German broadcast subtitles). Sabbel drops those automatically and shows a brief ⚠️ "Likely noise" badge instead of pasting.
+
+If you keep seeing a specific phantom phrase that Sabbel doesn't catch, add it to `~/.config/sabbel/dictionary.toml`:
+
+```toml
+[hallucinations]
+phrases = [
+    "Hallo zusammen.",
+    "Music playing",
+]
+```
+
+Entries are matched as exact full-text (case- and whitespace-insensitive, trailing punctuation ignored). The built-in defaults are always applied; entries here extend the set.
+
 ## Auto-Start on Login
 
 If you build from source, you can set up Sabbel as a login item:
