@@ -6,12 +6,22 @@ does. Language is auto-detected across 25 languages; there is no forced-language
 or prompt-biasing knob, and Sabbel does not pretend otherwise.
 """
 
+import logging
+from typing import NamedTuple
+
 import numpy as np
 
 
 DEFAULT_MODEL_REPO = "mlx-community/parakeet-tdt-0.6b-v3"
 
 SAMPLE_RATE = 16_000
+
+
+class ModelFallback(NamedTuple):
+    """A configured model repo that could not be used, and why."""
+
+    repo: str
+    reason: str
 
 
 def _load_parakeet():
@@ -37,19 +47,40 @@ class TranscriptionEngine:
         self._model_repo = model_repo
         self._min_samples = min_samples
         self._loaded = None
+        self.fallback: ModelFallback | None = None
 
     def _load(self):
         if self._loaded is None:
             mx, from_pretrained, get_logmel = _load_parakeet()
-            model = from_pretrained(self._model_repo)
-            rate = model.preprocessor_config.sample_rate
-            if rate != SAMPLE_RATE:
-                raise RuntimeError(
-                    f"{self._model_repo} expects {rate} Hz audio, but Sabbel "
-                    f"records at {SAMPLE_RATE} Hz. Pick a 16 kHz Parakeet model."
+            try:
+                model = self._load_model(from_pretrained, self._model_repo)
+            except Exception as exc:
+                # A repo pinned in config.toml outlives the build that could
+                # load it — the pre-0.4.0 Whisper repo is the case that
+                # shipped. Refusing forever is worse than dictating with the
+                # default model, so fall back and let the app say so.
+                if self._model_repo == DEFAULT_MODEL_REPO:
+                    raise
+                logging.warning(
+                    "Model %r could not be loaded; falling back to %s",
+                    self._model_repo,
+                    DEFAULT_MODEL_REPO,
+                    exc_info=True,
                 )
+                self.fallback = ModelFallback(self._model_repo, str(exc))
+                model = self._load_model(from_pretrained, DEFAULT_MODEL_REPO)
             self._loaded = (mx, get_logmel, model)
         return self._loaded
+
+    def _load_model(self, from_pretrained, repo: str):
+        model = from_pretrained(repo)
+        rate = model.preprocessor_config.sample_rate
+        if rate != SAMPLE_RATE:
+            raise RuntimeError(
+                f"{repo} expects {rate} Hz audio, but Sabbel "
+                f"records at {SAMPLE_RATE} Hz. Pick a 16 kHz Parakeet model."
+            )
+        return model
 
     def transcribe(self, audio: np.ndarray) -> str:
         if len(audio) < self._min_samples:

@@ -39,7 +39,7 @@ if getattr(sys, "frozen", False):
 import Quartz  # Eager import to prevent pyobjc race condition
 
 from sabbel.app import SabbelApp
-from sabbel.config import load_config
+from sabbel.config import load_config, migrate_config
 from sabbel.single_instance import SingleInstanceLock
 
 
@@ -62,6 +62,10 @@ def main():
         return 0
 
     logging.info("Sabbel starting")
+    # Upgrades leave entries behind that this build cannot use. Clear them out
+    # of config.toml before reading it, so the user isn't warned about the same
+    # obsolete line on every launch.
+    migrate_config()
     config = load_config()
     try:
         app = SabbelApp(config)

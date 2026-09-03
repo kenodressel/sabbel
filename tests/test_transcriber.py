@@ -123,3 +123,108 @@ def test_custom_repo_is_used(mock_load):
     )
 
     from_pretrained.assert_called_once_with("mlx-community/parakeet-tdt-0.6b-v2")
+
+
+# ---------------------------------------------------------------------------
+# A model repo pinned in config.toml is a valid string but may name a model
+# this build cannot load — the Whisper repo the pre-0.4.0 README told users
+# to pin is the case that shipped. config.toml survives every reinstall, so
+# without a fallback the app refuses to transcribe forever.
+# ---------------------------------------------------------------------------
+
+
+def _fake_parakeet_rejecting(bad_repo, error, sample_rate=16000):
+    """A from_pretrained that fails for *bad_repo* and works for anything else."""
+    mx, from_pretrained, get_logmel, model = _fake_parakeet(sample_rate=sample_rate)
+
+    def _load(repo):
+        if repo == bad_repo:
+            raise error
+        return model
+
+    from_pretrained.side_effect = _load
+    return mx, from_pretrained, get_logmel, model
+
+
+@patch("sabbel.transcriber._load_parakeet")
+def test_unloadable_repo_falls_back_to_the_default(mock_load):
+    stale = "mlx-community/whisper-large-v3-turbo"
+    mx, from_pretrained, get_logmel, _ = _fake_parakeet_rejecting(
+        stale, FileNotFoundError(2, "No such file or directory")
+    )
+    mock_load.return_value = (mx, from_pretrained, get_logmel)
+
+    engine = TranscriptionEngine(model_repo=stale)
+    result = engine.transcribe(np.random.randn(16000).astype(np.float32))
+
+    assert result == "Hallo Welt"
+    assert from_pretrained.call_args_list[-1][0][0] == DEFAULT_MODEL_REPO
+
+
+@patch("sabbel.transcriber._load_parakeet")
+def test_fallback_records_what_it_ignored(mock_load):
+    """The app needs this to tell the user; a silent downgrade is a support case."""
+    stale = "mlx-community/whisper-large-v3-turbo"
+    mx, from_pretrained, get_logmel, _ = _fake_parakeet_rejecting(
+        stale, FileNotFoundError(2, "No such file or directory")
+    )
+    mock_load.return_value = (mx, from_pretrained, get_logmel)
+
+    engine = TranscriptionEngine(model_repo=stale)
+    assert engine.fallback is None
+    engine.warmup()
+
+    assert engine.fallback is not None
+    assert engine.fallback.repo == stale
+    assert "No such file or directory" in engine.fallback.reason
+
+
+@patch("sabbel.transcriber._load_parakeet")
+def test_a_wrong_sample_rate_also_falls_back(mock_load):
+    """A loadable but 22 kHz model would silently mis-transcribe."""
+    mx, from_pretrained, get_logmel, model = _fake_parakeet(sample_rate=22050)
+    good = MagicMock()
+    good.preprocessor_config.sample_rate = 16000
+    good.generate.return_value = [MagicMock(text="Hallo Welt")]
+    from_pretrained.side_effect = lambda repo: (
+        good if repo == DEFAULT_MODEL_REPO else model
+    )
+    mock_load.return_value = (mx, from_pretrained, get_logmel)
+
+    engine = TranscriptionEngine(model_repo="mlx-community/some-22khz-model")
+    assert engine.transcribe(np.random.randn(16000).astype(np.float32)) == "Hallo Welt"
+    assert engine.fallback.repo == "mlx-community/some-22khz-model"
+
+
+@patch("sabbel.transcriber._load_parakeet")
+def test_default_repo_failure_still_raises(mock_load):
+    """Nothing left to fall back to — this is a genuine "model failed"."""
+    mx, from_pretrained, get_logmel, _ = _fake_parakeet_rejecting(
+        DEFAULT_MODEL_REPO, RuntimeError("network is unreachable")
+    )
+    mock_load.return_value = (mx, from_pretrained, get_logmel)
+
+    with pytest.raises(RuntimeError, match="network is unreachable"):
+        TranscriptionEngine().warmup()
+
+
+@patch("sabbel.transcriber._load_parakeet")
+def test_raises_when_the_fallback_also_fails(mock_load):
+    mx, from_pretrained, get_logmel, _ = _fake_parakeet()
+    from_pretrained.side_effect = RuntimeError("network is unreachable")
+    mock_load.return_value = (mx, from_pretrained, get_logmel)
+
+    with pytest.raises(RuntimeError, match="network is unreachable"):
+        TranscriptionEngine(model_repo="mlx-community/whisper-large-v3-turbo").warmup()
+
+
+@patch("sabbel.transcriber._load_parakeet")
+def test_a_working_custom_repo_is_not_second_guessed(mock_load):
+    mx, from_pretrained, get_logmel, _ = _fake_parakeet()
+    mock_load.return_value = (mx, from_pretrained, get_logmel)
+
+    engine = TranscriptionEngine(model_repo="mlx-community/parakeet-tdt-0.6b-v2")
+    engine.warmup()
+
+    from_pretrained.assert_called_once_with("mlx-community/parakeet-tdt-0.6b-v2")
+    assert engine.fallback is None

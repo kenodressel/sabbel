@@ -123,6 +123,32 @@ enabled = false        # Seed value. The menu toggle is the primary control
 max_bytes = 1000000    # Rotate log to .1 once it grows beyond this.
 ```
 
+Nothing in this file can stop Sabbel from starting. A value Sabbel cannot use
+is ignored in favour of its default — a malformed file falls back entirely —
+and the reason is written to `/tmp/sabbel-runtime.log`.
+
+**Sabbel also cleans the file up after an upgrade.** Entries that are obsolete
+or unusable are commented out in place, each with a `# sabbel:` note saying
+why, so you aren't warned about the same dead line on every launch:
+
+```toml
+[general]
+# sabbel: no longer used by this version of Sabbel
+# language = "de"
+hotkey = "ctrl_r"        # your comments and settings are left alone
+```
+
+Your original file is kept as `config.toml.bak` before the first such
+rewrite. Only lines Sabbel can locate unambiguously are touched, and the
+result has to yield exactly the same effective settings — otherwise the file
+is left untouched and the entries are just ignored at load time.
+
+> **Upgrading from a pre-0.4.0 (Whisper) install?** Nothing to do. Sabbel now
+> runs Parakeet, so a `[model] repo` pinned to a Whisper model no longer
+> loads: Sabbel uses its default model, comments the line out, and tells you.
+> `[general] language` and the custom dictionary are gone too, and get the
+> same treatment.
+
 **Toggle from the menu bar:** open the Sabbel menu → **History → Save history**. The checkmark persists across restarts (stored in `~/.config/sabbel/preferences.json`), so you don't need to edit TOML. Use **History → Open log** and **History → Clear log** to view or wipe it.
 
 > **⚠️ Privacy note:** History is off by default because transcriptions can include anything you dictate — including passwords, private notes, or confidential work data. Enable it only if you're comfortable with that trade-off. The log stays on your machine; nothing is uploaded.
