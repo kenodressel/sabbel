@@ -165,6 +165,22 @@ class AudioRecorder:
     def is_valid_duration(self, audio: np.ndarray) -> bool:
         return len(audio) >= self._min_samples
 
+    def is_dead_stream(self, audio: np.ndarray) -> bool:
+        """True when the buffer is *exactly* zero — a dead capture stream.
+
+        A live microphone always carries a noise floor, so even a silent room
+        produces nonzero samples. All-zero data instead means CoreAudio handed
+        us a stream that never delivered: it happens after sleep, after the lid
+        closes on the internal mic, and when a stream is reopened faster than
+        the device primes.
+
+        Worth separating from `has_speech`, because the recovery differs — the
+        user re-recording into the same dead stream will just fail again.
+        """
+        if len(audio) == 0:
+            return False
+        return float(np.max(np.abs(audio))) == 0.0
+
     def has_speech(self, audio: np.ndarray, rms_threshold: float = 0.003) -> bool:
         """Check if audio contains likely speech based on RMS energy.
 
