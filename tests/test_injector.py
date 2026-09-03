@@ -172,7 +172,7 @@ def _patch_paste_env(pb, landed=True, can_paste=True):
         patch.object(injector, "_can_accept_paste", return_value=can_paste),
         patch.object(injector, "wait_for_modifiers_released", return_value=True),
         patch.object(injector, "_focused_value", return_value=""),
-        patch.object(injector, "_paste_landed", return_value=landed),
+        patch.object(injector, "_paste_observed", return_value=landed),
         patch.object(injector, "_write_transient", side_effect=lambda p, t: p.clearContents()),
         patch.object(injector, "_post_paste_keystroke"),
     ]
@@ -240,17 +240,15 @@ def test_inject_skips_restore_when_user_copied_during_paste(pb):
         with patch.object(injector, "_capture_pasteboard", return_value=[]), \
              patch.object(injector, "_restore_pasteboard") as restore:
             pb.stringForType_.return_value = "something the user copied"
-            original_landed = injector._paste_landed
 
             def bump(*args, **kwargs):
                 pb._count += 5
                 return True
 
-            with patch.object(injector, "_paste_landed", side_effect=bump):
+            with patch.object(injector, "_paste_observed", side_effect=bump):
                 result = injector.inject_text(
                     "hallo", pre_paste_delay=0, post_paste_delay=0
                 )
-            del original_landed
     finally:
         for p in patches:
             p.stop()
@@ -272,7 +270,7 @@ def test_unreadable_field_uses_fixed_delay_not_verify_timeout(pb):
         with patch.object(injector, "_capture_pasteboard", return_value=[]), \
              patch.object(injector, "_restore_pasteboard"), \
              patch.object(injector, "_focused_value", return_value=None), \
-             patch.object(injector, "_paste_landed", return_value=False) as landed:
+             patch.object(injector, "_paste_observed", return_value=False) as landed:
             started = time.monotonic()
             injector.inject_text(
                 "hallo",
@@ -299,9 +297,63 @@ def test_readable_field_polls_until_paste_lands(pb):
         with patch.object(injector, "_capture_pasteboard", return_value=[]), \
              patch.object(injector, "_restore_pasteboard") as restore, \
              patch.object(injector, "_focused_value", return_value="vorher"), \
-             patch.object(injector, "_paste_landed", side_effect=lambda *a: next(answers)):
+             patch.object(injector, "_paste_observed", side_effect=lambda *a: next(answers)):
             result = injector.inject_text(
                 "hallo", pre_paste_delay=0, post_paste_delay=0, verify_timeout=5.0
+            )
+    finally:
+        for p in patches:
+            p.stop()
+
+    assert result == injector.PASTED
+    restore.assert_called_once()
+
+
+# --- paste verification is a timing signal, not a verdict --------------------
+
+
+def test_iterm_grid_value_still_matches():
+    """iTerm2 exposes the terminal grid with NUL bytes between cells."""
+    grid = "\x00\x00\x00Im\x00Sprint\x00Planning\x00haben\x00wir\x00\x00\x00"
+    with patch.object(injector, "_focused_value", return_value=grid):
+        assert injector._paste_observed("vorher", "Im Sprint Planning haben wir")
+
+
+def test_wrapped_text_still_matches():
+    """Terminals hard-wrap, injecting line breaks into the readback."""
+    wrapped = "Im Sprint Planning\nhaben wir die\nDeployments besprochen"
+    with patch.object(injector, "_focused_value", return_value=wrapped):
+        assert injector._paste_observed(
+            "vorher", "Im Sprint Planning haben wir die Deployments besprochen"
+        )
+
+
+def test_any_change_counts_as_observed():
+    """The signal only decides when to restore the clipboard, so a field that
+    merely changed is enough — no AX readback is reliable enough for a verdict."""
+    with patch.object(injector, "_focused_value", return_value="etwas anderes"):
+        assert injector._paste_observed("vorher", "unauffindbar")
+
+
+def test_unchanged_field_is_not_observed():
+    with patch.object(injector, "_focused_value", return_value="vorher"):
+        assert not injector._paste_observed("vorher", "unauffindbar")
+
+
+def test_unobserved_paste_still_restores_the_clipboard(pb):
+    """The regression: pasting into iTerm2 worked, but Sabbel reported "no text
+    field detected", left the transcript in the clipboard and burned 2s doing it.
+    """
+    patches = _patch_paste_env(pb)
+    for p in patches:
+        p.start()
+    try:
+        with patch.object(injector, "_capture_pasteboard", return_value=[{"t": b"old"}]), \
+             patch.object(injector, "_restore_pasteboard") as restore, \
+             patch.object(injector, "_focused_value", return_value="lesbar"), \
+             patch.object(injector, "_paste_observed", return_value=False):
+            result = injector.inject_text(
+                "hallo", pre_paste_delay=0, post_paste_delay=0, verify_timeout=0.05
             )
     finally:
         for p in patches:

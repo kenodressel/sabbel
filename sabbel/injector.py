@@ -330,19 +330,32 @@ def _focused_value() -> str | None:
     return str(value)
 
 
-def _paste_landed(before: str | None, expected: str) -> bool:
-    """Best-effort check that the focused field actually received the paste.
+def _normalize_for_match(text: str) -> str:
+    """Flatten a field's text so a substring check survives how apps expose it.
 
-    Many apps (Electron, terminals) expose nothing useful here, which is why an
-    inconclusive answer means "keep waiting, then fall back to a fixed delay"
-    rather than "the paste failed".
+    iTerm2 publishes the terminal grid as AXValue with NUL bytes between cells,
+    so a pasted "Hallo Welt" reads back as "Hallo\x00Welt" and a literal
+    substring test can never match. Terminals also hard-wrap, which injects
+    line breaks mid-string.
+    """
+    return " ".join(text.replace("\x00", " ").split())
+
+
+def _paste_observed(before: str | None, expected: str) -> bool:
+    """Did the focused field react to our paste?
+
+    This decides *when* it is safe to put the user's clipboard back, not
+    whether the paste succeeded — no AX signal is reliable enough for that
+    verdict. A field that merely changed counts: restoring a moment early is
+    the old behaviour, whereas claiming failure on a successful paste is a
+    lie the user acts on.
     """
     value = _focused_value()
     if value is None:
         return False
-    if before is not None and value == before:
-        return False
-    return expected in value
+    if _normalize_for_match(expected) in _normalize_for_match(value):
+        return True
+    return before is not None and value != before
 
 
 # --- main entry point -------------------------------------------------------
@@ -354,7 +367,7 @@ def inject_text(
     post_paste_delay: float = 0.15,
     target: dict | None = None,
     modifier_timeout: float = 2.0,
-    verify_timeout: float = 2.0,
+    verify_timeout: float = 1.0,
 ) -> str:
     """Paste text into the focused app via the clipboard and a synthetic Cmd+V.
 
@@ -404,18 +417,16 @@ def inject_text(
         time.sleep(post_paste_delay)
     else:
         deadline = time.monotonic() + verify_timeout
-        landed = False
         while time.monotonic() < deadline:
-            if _paste_landed(value_before, text):
-                landed = True
+            if _paste_observed(value_before, text):
                 break
             time.sleep(0.02)
-        if not landed:
-            # The field was readable and the text never appeared, so the paste
-            # genuinely failed. Restoring now would destroy the transcript —
-            # leave it in the clipboard instead.
-            logging.info("Paste not observed within %.1fs — leaving text in clipboard", verify_timeout)
-            return LEFT_IN_CLIPBOARD
+        else:
+            # Not observing the paste is not evidence that it failed — plenty
+            # of apps simply never report it. Waiting out the timeout already
+            # gave the target far longer than the old fixed delay, so restore
+            # as usual rather than telling the user something untrue.
+            logging.info("Paste not observed within %.1fs — restoring anyway", verify_timeout)
 
     # Did someone else touch the clipboard while we were pasting? (The user
     # copied something, or another app wrote to it.)
