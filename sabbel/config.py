@@ -2,11 +2,12 @@ from dataclasses import dataclass, fields
 from pathlib import Path
 import tomllib
 
+from sabbel.transcriber import DEFAULT_MODEL_REPO
+
 
 @dataclass
 class SabbelConfig:
-    language: str = "de"
-    model_repo: str = "mlx-community/whisper-large-v3-turbo"
+    model_repo: str = DEFAULT_MODEL_REPO
     min_duration_seconds: float = 0.5
     pre_paste_delay: float = 0.05
     post_paste_delay: float = 0.15
@@ -16,7 +17,6 @@ class SabbelConfig:
 
 
 _TOML_MAP = {
-    ("general", "language"): "language",
     ("model", "repo"): "model_repo",
     ("audio", "min_duration_seconds"): "min_duration_seconds",
     ("injection", "pre_paste_delay"): "pre_paste_delay",

@@ -1,41 +1,68 @@
+"""Speech-to-text via NVIDIA Parakeet TDT (parakeet-mlx).
+
+Parakeet is a TDT/CTC model rather than an autoregressive one, so it returns
+nothing on silence instead of inventing subtitle boilerplate the way Whisper
+does. Language is auto-detected across 25 languages; there is no forced-language
+or prompt-biasing knob, and Sabbel does not pretend otherwise.
+"""
+
 import numpy as np
 
 
-def _load_mlx_whisper():
-    import mlx_whisper
+DEFAULT_MODEL_REPO = "mlx-community/parakeet-tdt-0.6b-v3"
 
-    return mlx_whisper
+SAMPLE_RATE = 16_000
+
+
+def _load_parakeet():
+    """Import parakeet-mlx lazily and return the pieces we need.
+
+    We deliberately avoid ``BaseParakeet.transcribe()``: it decodes via an
+    ``ffmpeg`` subprocess, which Sabbel neither ships nor requires. Sabbel
+    already holds 16 kHz float32 mono, so we go straight to the mel front-end.
+    """
+    import mlx.core as mx
+    from parakeet_mlx import from_pretrained
+    from parakeet_mlx.audio import get_logmel
+
+    return mx, from_pretrained, get_logmel
 
 
 class TranscriptionEngine:
     def __init__(
         self,
-        model_repo: str = "mlx-community/whisper-large-v3-turbo",
+        model_repo: str = DEFAULT_MODEL_REPO,
         min_samples: int = 8000,
     ):
         self._model_repo = model_repo
         self._min_samples = min_samples
-        self._mlx_whisper = None
+        self._loaded = None
 
-    def _whisper(self):
-        if self._mlx_whisper is None:
-            self._mlx_whisper = _load_mlx_whisper()
-        return self._mlx_whisper
+    def _load(self):
+        if self._loaded is None:
+            mx, from_pretrained, get_logmel = _load_parakeet()
+            model = from_pretrained(self._model_repo)
+            rate = model.preprocessor_config.sample_rate
+            if rate != SAMPLE_RATE:
+                raise RuntimeError(
+                    f"{self._model_repo} expects {rate} Hz audio, but Sabbel "
+                    f"records at {SAMPLE_RATE} Hz. Pick a 16 kHz Parakeet model."
+                )
+            self._loaded = (mx, get_logmel, model)
+        return self._loaded
 
-    def transcribe(self, audio: np.ndarray, language: str | None = "de", initial_prompt: str | None = None) -> str:
+    def transcribe(self, audio: np.ndarray) -> str:
         if len(audio) < self._min_samples:
             return ""
 
-        kwargs = {"path_or_hf_repo": self._model_repo}
-        if language is not None:
-            kwargs["language"] = language
-        if initial_prompt:
-            kwargs["initial_prompt"] = initial_prompt
-
-        result = self._whisper().transcribe(audio, **kwargs)
-        text = result["text"].strip()
-        return text if text else ""
+        mx, get_logmel, model = self._load()
+        # float32, not bfloat16: get_logmel reinterprets the STFT output via
+        # mx.view(x, original_dtype), and only a 4-byte dtype halves back to
+        # n_fft//2+1 bins. bfloat16 audio produces a filterbank shape mismatch.
+        samples = mx.array(np.ascontiguousarray(audio, dtype=np.float32))
+        mel = get_logmel(samples, model.preprocessor_config)
+        return model.generate(mel)[0].text.strip()
 
     def warmup(self):
-        silence = np.zeros(16000, dtype=np.float32)
+        silence = np.zeros(SAMPLE_RATE, dtype=np.float32)
         self.transcribe(silence)

@@ -23,13 +23,12 @@
   <a href="#install">Install</a> •
   <a href="#how-it-works">How It Works</a> •
   <a href="#configuration">Configuration</a> •
-  <a href="#custom-dictionary">Custom Dictionary</a> •
   <a href="#development">Development</a>
 </p>
 
 ---
 
-Speaking is 3-4x faster than typing. Sabbel turns your voice into text anywhere on your Mac — powered by Whisper on Apple Silicon, fully offline.
+Speaking is 3-4x faster than typing. Sabbel turns your voice into text anywhere on your Mac — powered by NVIDIA Parakeet on Apple Silicon, fully offline.
 
 ## Why Sabbel
 
@@ -40,7 +39,7 @@ Speaking is 3-4x faster than typing. Sabbel turns your voice into text anywhere 
 ### macOS Dictation
 
 - Breaks on mixed language ("Kubernetes" → "communities")
-- No custom dictionary
+- Language must be picked manually
 - Times out after 30-60 seconds
 - ~10-20% word error rate
 - Audio may be sent to Apple servers
@@ -51,9 +50,9 @@ Speaking is 3-4x faster than typing. Sabbel turns your voice into text anywhere 
 ### Sabbel
 
 - Handles German + English tech terms in the same sentence
-- Custom dictionary with domain-specific vocabulary
+- Auto-detects language across 25 languages
 - No timeout — dictate as long as you want
-- ~2-4% word error rate (Whisper large-v3)
+- Near-instant transcription (Parakeet TDT v3)
 - 100% local, fully offline, nothing leaves your Mac
 
 </td>
@@ -67,7 +66,6 @@ Speaking is 3-4x faster than typing. Sabbel turns your voice into text anywhere 
 | **Price** | Free | $15/month | $8/month |
 | **Processing** | Local (Apple Silicon GPU) | Cloud | Local |
 | **Open Source** | Yes | No | No |
-| **Custom Dictionary** | Yes | Yes | Yes |
 | **Privacy** | Audio never leaves your Mac | Audio sent to cloud | Local option |
 
 ## Install
@@ -86,7 +84,7 @@ No dependencies, no Python, no package manager. The script downloads `Sabbel.app
 
 On first launch:
 - macOS asks for **Accessibility** and **Microphone** permissions
-- The Whisper model (~1.5GB) downloads automatically in the background
+- The Parakeet model (~2.3GB) downloads automatically in the background
 
 ## How It Works
 
@@ -104,19 +102,16 @@ The menu bar icon shows the current state:
 | **◐** | Processing / transcribing |
 | **⚠️** | Error (auto-clears after 2s) |
 
-Click the menu bar icon to cycle the language: **Auto** → **Deutsch** → **English**
-
 ## Configuration
 
 Create `~/.config/sabbel/config.toml` to override defaults:
 
 ```toml
 [general]
-language = "de"    # "de", "en", or omit for auto-detect
 hotkey = "alt_r"   # Right Option key. Other options: f5, ctrl_r, cmd_r, ...
 
 [model]
-repo = "mlx-community/whisper-large-v3-turbo"
+repo = "mlx-community/parakeet-tdt-0.6b-v3"
 
 [audio]
 min_duration_seconds = 0.5
@@ -136,23 +131,6 @@ max_bytes = 1000000    # Rotate log to .1 once it grows beyond this.
 Click the Sabbel menu → **Microphone** to pick which input device Sabbel records from. The list refreshes every time you open the menu, so plugging in a USB mic or docking station is reflected immediately. The choice persists across restarts.
 
 If the saved device is offline (e.g., dock unplugged), Sabbel falls back to the system default and shows a notification on the next recording. When the device comes back, it's used again automatically — no need to re-pick.
-
-## Custom Dictionary
-
-Edit `~/.config/sabbel/dictionary.toml` to improve recognition for domain-specific terms:
-
-```toml
-[initial_prompt]
-# Bias Whisper toward your vocabulary. Write natural sentences.
-text = "Im Sprint-Planning haben wir die OKRs und KPIs reviewed."
-
-[replacements]
-# Post-transcription find-and-replace (case-insensitive).
-"kay pee eye" = "KPI"
-"oh kay are" = "OKR"
-```
-
-Changes are picked up on the next dictation — no restart needed.
 
 ## Auto-Start on Login
 
@@ -197,7 +175,7 @@ Check the [open issues](https://github.com/kenodressel/sabbel/issues) for things
 
 ## How It's Built
 
-Sabbel is a Python menu bar app built with [rumps](https://github.com/jaredks/rumps). Speech recognition runs locally via [mlx-whisper](https://github.com/ml-explore/mlx-examples/tree/main/whisper) on Apple Silicon GPU. The app is packaged as a self-contained `.app` bundle using [py2app](https://github.com/ronaldoussoren/py2app) — Python runtime and all dependencies are embedded, so end users don't need Python installed.
+Sabbel is a Python menu bar app built with [rumps](https://github.com/jaredks/rumps). Speech recognition runs locally via [parakeet-mlx](https://github.com/senstella/parakeet-mlx) on Apple Silicon GPU. The app is packaged as a self-contained `.app` bundle using [py2app](https://github.com/ronaldoussoren/py2app) — Python runtime and all dependencies are embedded, so end users don't need Python installed.
 
 Releases are built automatically on GitHub Actions (Apple Silicon runner) and published as GitHub Releases.
 

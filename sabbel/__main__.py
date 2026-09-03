@@ -1,7 +1,27 @@
+import locale
 import logging
 import os
 import sys
 from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# Force a UTF-8 locale before anything reads a file.
+#
+# The py2app stub initialises the interpreter without honouring PYTHONUTF8, and
+# LaunchServices provides no usable LC_CTYPE, so open() defaults to ASCII and
+# any non-ASCII byte raises UnicodeDecodeError. Our own code passes
+# encoding="utf-8" explicitly; third-party code does not — parakeet-mlx reads
+# the model's config.json with a bare open() and dies on the em-dash in it.
+#
+# open() resolves its default per call via the current LC_CTYPE, so setting it
+# here fixes every later read, ours and third-party alike.
+# ---------------------------------------------------------------------------
+for _loc in ("en_US.UTF-8", "C.UTF-8", "UTF-8"):
+    try:
+        locale.setlocale(locale.LC_CTYPE, _loc)
+        break
+    except locale.Error:
+        continue
 
 # ---------------------------------------------------------------------------
 # Frozen-app detection: when running inside a py2app .app bundle, tell MLX
