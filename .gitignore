@@ -7,3 +7,4 @@ build/
 .venv/
 .claude/
 icons/Sabbel.icns
+.DS_Store
