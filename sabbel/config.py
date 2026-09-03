@@ -111,7 +111,7 @@ _VALID_FIELDS = {f.name for f in fields(SabbelConfig)}
 _DEFAULTS = SabbelConfig()
 
 
-def _default_path() -> Path:
+def default_config_path() -> Path:
     return Path.home() / ".config" / "sabbel" / "config.toml"
 
 
@@ -170,7 +170,7 @@ def _read(path: Path) -> dict | None:
 
 def load_config(path: Path | None = None) -> SabbelConfig:
     if path is None:
-        path = _default_path()
+        path = default_config_path()
     if not path.exists():
         return SabbelConfig()
 
@@ -272,7 +272,7 @@ def migrate_config(
     rewritten. Never raises: a config file is not worth failing a launch over.
     """
     if path is None:
-        path = _default_path()
+        path = default_config_path()
 
     try:
         if not path.exists():

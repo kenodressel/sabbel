@@ -38,12 +38,9 @@ if getattr(sys, "frozen", False):
 
 import Quartz  # Eager import to prevent pyobjc race condition
 
-from sabbel.app import SabbelApp
+from sabbel.app import SabbelApp, LOG_PATH
 from sabbel.config import load_config, migrate_config
 from sabbel.single_instance import SingleInstanceLock
-
-
-LOG_PATH = Path("/tmp/sabbel-runtime.log")
 
 
 def setup_logging() -> None:

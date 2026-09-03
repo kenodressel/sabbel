@@ -572,3 +572,110 @@ def test_run_does_not_warm_up_on_a_separate_thread():
     assert "self._warmup" not in source, (
         "run() must not spawn warmup; the transcription worker owns the model"
     )
+
+
+# --- diagnostics for bug reports --------------------------------------------
+
+
+def test_diagnostics_carry_what_a_bug_report_needs(tmp_path):
+    """The v0.4.0 report was a screenshot of "Model failed — restart Sabbel".
+    The real error only ever existed in a log the UI never mentions."""
+    from sabbel.app import _build_diagnostics
+
+    log = tmp_path / "sabbel-runtime.log"
+    log.write_text("line one\nModel warmup failed\nline three\n", encoding="utf-8")
+    config = tmp_path / "config.toml"
+    config.write_text('[model]\nrepo = "x"\n', encoding="utf-8")
+
+    text = _build_diagnostics(
+        version="0.4.1",
+        status="Status: Model failed — restart Sabbel",
+        model_repo="mlx-community/parakeet-tdt-0.6b-v3",
+        log_path=log,
+        config_path=config,
+    )
+
+    assert "0.4.1" in text
+    assert "Model failed — restart Sabbel" in text
+    assert "mlx-community/parakeet-tdt-0.6b-v3" in text
+    assert "Model warmup failed" in text          # the log tail itself
+    assert str(log) in text
+    assert "present" in text                      # config.toml exists
+
+
+def test_diagnostics_say_when_there_is_no_config_or_log(tmp_path):
+    from sabbel.app import _build_diagnostics
+
+    text = _build_diagnostics(
+        version="0.4.1",
+        status="Status: Ready",
+        model_repo="repo",
+        log_path=tmp_path / "missing.log",
+        config_path=tmp_path / "missing.toml",
+    )
+
+    assert "none" in text          # no config.toml
+    assert "no log file" in text
+
+
+def test_diagnostics_keep_only_the_log_tail(tmp_path):
+    from sabbel.app import _build_diagnostics
+
+    log = tmp_path / "log"
+    log.write_text("".join(f"line {i}\n" for i in range(500)), encoding="utf-8")
+
+    text = _build_diagnostics(
+        version="0.4.1",
+        status="s",
+        model_repo="r",
+        log_path=log,
+        config_path=tmp_path / "nope.toml",
+        log_lines=40,
+    )
+
+    assert "line 499" in text
+    assert "line 0\n" not in text
+
+
+def test_diagnostics_never_raise_on_an_unreadable_log(tmp_path):
+    """A diagnostics button that crashes is worse than none."""
+    from sabbel.app import _build_diagnostics
+
+    unreadable = tmp_path / "dir-not-a-file"
+    unreadable.mkdir()
+
+    text = _build_diagnostics(
+        version="0.4.1",
+        status="s",
+        model_repo="r",
+        log_path=unreadable,
+        config_path=tmp_path / "nope.toml",
+    )
+
+    assert "0.4.1" in text
+
+
+def test_copy_diagnostics_puts_them_on_the_clipboard():
+    app = SabbelApp.__new__(SabbelApp)
+    app._version = "0.4.1"
+    app._status_item = MagicMock(title="Status: Model failed — restart Sabbel")
+    app._config = MagicMock(model_repo="some/repo")
+
+    with patch("sabbel.app.injector.copy_to_clipboard", return_value=True) as copy, \
+         patch("sabbel.app.rumps.notification") as notify:
+        app._copy_diagnostics()
+
+    copied = copy.call_args[0][0]
+    assert "0.4.1" in copied
+    assert "some/repo" in copied
+    notify.assert_called_once()
+
+
+def test_model_failure_notification_points_at_the_log():
+    app = SabbelApp.__new__(SabbelApp)
+    with patch("sabbel.app.rumps.notification") as notify:
+        app._notify_model_failed("network is unreachable")
+
+    message = notify.call_args.kwargs["message"]
+    assert "network is unreachable" in message
+    assert "sabbel-runtime.log" in message

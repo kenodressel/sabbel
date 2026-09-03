@@ -12,7 +12,7 @@ import objc
 from Foundation import NSObject
 from PyObjCTools.AppHelper import callAfter
 
-from sabbel.config import SabbelConfig, migrate_config
+from sabbel.config import SabbelConfig, migrate_config, default_config_path
 from sabbel.recorder import AudioRecorder, list_input_devices
 from sabbel.transcriber import TranscriptionEngine
 from sabbel.hotkey import HotkeyManager
@@ -160,6 +160,63 @@ def _record_update_check(state_path: Path, now: float) -> None:
         logging.debug("Failed to record update check", exc_info=True)
 
 
+LOG_PATH = Path("/tmp/sabbel-runtime.log")
+
+
+def _build_diagnostics(
+    version: str,
+    status: str,
+    model_repo: str,
+    log_path: Path,
+    config_path: Path,
+    log_lines: int = 40,
+) -> str:
+    """Everything a bug report needs, in one pasteable block.
+
+    The v0.4.0 report that started all this was a screenshot of "Model failed
+    — restart Sabbel". The actual error existed only in a log the UI never
+    mentions, so nobody could act on it. Every lookup here is guarded: a
+    diagnostics button that crashes is worse than none at all.
+    """
+    lines = [f"Sabbel v{version}", f"status: {status}"]
+
+    try:
+        import platform
+
+        lines.append(f"macOS: {platform.mac_ver()[0]} ({platform.machine()})")
+        lines.append(f"Python: {platform.python_version()}")
+    except Exception:
+        lines.append("macOS/Python: unavailable")
+
+    try:
+        import mlx.core as _mx
+
+        lines.append(f"mlx: {_mx.__version__}")
+    except Exception:
+        lines.append("mlx: not importable")
+
+    lines.append(f"model repo: {model_repo}")
+
+    try:
+        if config_path.is_file():
+            lines.append(f"config.toml: present ({config_path})")
+            lines.append("--- config.toml ---")
+            lines.append(config_path.read_text(encoding="utf-8").strip())
+        else:
+            lines.append(f"config.toml: none ({config_path})")
+    except Exception:
+        lines.append(f"config.toml: unreadable ({config_path})")
+
+    lines.append(f"--- last {log_lines} lines of {log_path} ---")
+    try:
+        tail = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+        lines.extend(tail[-log_lines:] or ["(log is empty)"])
+    except Exception:
+        lines.append("(no log file)")
+
+    return "\n".join(lines)
+
+
 def _append_history(path: Path, text: str, max_bytes: int) -> None:
     """Append `text` to the history file, rotating once if it would grow
     past `max_bytes`. Rotation keeps exactly one backup at `path.1`.
@@ -231,6 +288,9 @@ class SabbelApp(rumps.App):
             menu_items.append(self._update_item)
         else:
             self._update_item = None
+        menu_items.append(
+            rumps.MenuItem("Copy diagnostics", callback=self._copy_diagnostics)
+        )
         menu_items.extend([None, self._version_item])
         self.menu = menu_items
         self._rebuild_mic_menu()
@@ -410,12 +470,38 @@ class SabbelApp(rumps.App):
         except Exception:
             logging.exception("Failed to send model-fallback notification")
 
+    def _copy_diagnostics(self, _sender=None) -> None:
+        """Put everything a bug report needs on the clipboard."""
+        text = _build_diagnostics(
+            version=self._version,
+            status=self._status_item.title,
+            model_repo=self._config.model_repo,
+            log_path=LOG_PATH,
+            config_path=default_config_path(),
+        )
+        copied = injector.copy_to_clipboard(text)
+        try:
+            rumps.notification(
+                title="Sabbel",
+                subtitle="Diagnostics copied" if copied else "Could not copy",
+                message=(
+                    "Paste them into your bug report."
+                    if copied
+                    else f"Send {LOG_PATH} instead."
+                ),
+                sound=False,
+            )
+        except Exception:
+            logging.exception("Failed to send diagnostics notification")
+
     def _notify_model_failed(self, message: str) -> None:
         try:
             rumps.notification(
                 title="Sabbel",
                 subtitle="Model could not be loaded",
-                message=message[:200],
+                # Naming the log is the difference between a screenshot and a
+                # report someone can act on.
+                message=f"{message[:160]} — details in {LOG_PATH}",
                 sound=False,
             )
         except Exception:

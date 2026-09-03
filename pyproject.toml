@@ -5,6 +5,12 @@ description = "Local voice dictation for macOS"
 requires-python = ">=3.10"
 dependencies = [
     "parakeet-mlx>=0.5.2",
+    # Pinned deliberately, not transitively. MLX 0.32 made streams
+    # thread-owned: a model loaded on one thread cannot be evaluated on
+    # another. Nothing in this repo used to state which MLX Sabbel supports,
+    # so a fresh resolve crossed that boundary on its own and shipped a
+    # release that transcribed nothing. Widen only with a real-model test.
+    "mlx>=0.32,<0.33",
     "sounddevice>=0.5.0",
     "numpy>=1.24",
     "pynput>=1.8.0",

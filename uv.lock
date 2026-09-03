@@ -1348,6 +1348,7 @@ name = "sabbel"
 version = "0.0.0.dev0"
 source = { editable = "." }
 dependencies = [
+    { name = "mlx" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "parakeet-mlx" },
@@ -1370,6 +1371,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "mlx", specifier = ">=0.32,<0.33" },
     { name = "numpy", specifier = ">=1.24" },
     { name = "parakeet-mlx", specifier = ">=0.5.2" },
     { name = "py2app", marker = "extra == 'build'", specifier = ">=0.28.8" },

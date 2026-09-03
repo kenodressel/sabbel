@@ -302,6 +302,21 @@ def _restore_pasteboard(pb, snapshot: list[dict]) -> None:
         logging.exception("Pasteboard restore failed")
 
 
+def copy_to_clipboard(text: str) -> bool:
+    """Put `text` on the pasteboard to stay — no transient markers.
+
+    Unlike a dictated take, diagnostics are meant to survive in the user's
+    clipboard manager until they paste them into a bug report.
+    """
+    try:
+        pb = _general_pasteboard()
+        pb.clearContents()
+        return bool(pb.setString_forType_(text, NSPasteboardTypeString))
+    except Exception:
+        logging.exception("Copy to clipboard failed")
+        return False
+
+
 def _write_transient(pb, text: str) -> int:
     """Put `text` on the pasteboard tagged so clipboard managers skip it.
 

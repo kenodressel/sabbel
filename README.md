@@ -206,7 +206,17 @@ Sabbel is a Python menu bar app built with [rumps](https://github.com/jaredks/ru
 
 Releases are built automatically on GitHub Actions (Apple Silicon runner) and published as GitHub Releases.
 
-## Logs
+## Logs and bug reports
+
+Sabbel menu → **Copy diagnostics** puts everything a bug report needs on your
+clipboard: version, macOS, MLX version, the model in use, your `config.toml`
+if you have one, and the last 40 log lines. That beats a screenshot of the
+status line, which never shows the actual error.
+
+It contains no transcribed text — the log records how many characters a take
+produced, never what you said.
+
+To follow along live:
 
 ```bash
 tail -f /tmp/sabbel-runtime.log
