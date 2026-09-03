@@ -4,6 +4,9 @@ on:
   push:
     tags:
       - "v*"
+  # Build-only dry run: verifies the bundle without publishing anything.
+  # The publish step below is gated on an actual tag.
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -103,6 +106,10 @@ jobs:
           ditto -ck --keepParent Sabbel.app Sabbel.zip
 
       - name: Create GitHub Release
+        # Only on a real tag. A workflow_dispatch run stops after the bundle
+        # verification above — every v* tag becomes the "latest" release that
+        # install.sh serves, so there is no such thing as a throwaway tag here.
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: dist/Sabbel.zip
