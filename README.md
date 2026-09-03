@@ -41,7 +41,6 @@ Speaking is 3-4x faster than typing. Sabbel turns your voice into text anywhere 
 - Breaks on mixed language ("Kubernetes" → "communities")
 - Language must be picked manually
 - Times out after 30-60 seconds
-- ~10-20% word error rate
 - Audio may be sent to Apple servers
 
 </td>
@@ -50,9 +49,8 @@ Speaking is 3-4x faster than typing. Sabbel turns your voice into text anywhere 
 ### Sabbel
 
 - Handles German + English tech terms in the same sentence
-- Auto-detects language across 25 languages
+- Auto-detects the language, no manual switching
 - No timeout — dictate as long as you want
-- Near-instant transcription (Parakeet TDT v3)
 - 100% local, fully offline, nothing leaves your Mac
 
 </td>
@@ -67,6 +65,9 @@ Speaking is 3-4x faster than typing. Sabbel turns your voice into text anywhere 
 | **Processing** | Local (Apple Silicon GPU) | Cloud | Local |
 | **Open Source** | Yes | No | No |
 | **Privacy** | Audio never leaves your Mac | Audio sent to cloud | Local option |
+
+Transcription runs at roughly 17x real time on an M-series Mac — 4.6 seconds
+of speech came back in 0.27s in local testing.
 
 ## Install
 

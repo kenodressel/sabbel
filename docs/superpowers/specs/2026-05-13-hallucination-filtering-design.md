@@ -1,5 +1,17 @@
 # Whisper Hallucination Filtering — Design
 
+> [!WARNING]
+> **Superseded — not implemented, and no longer needed.**
+>
+> Sabbel switched from Whisper to NVIDIA Parakeet TDT. Parakeet is a TDT/CTC
+> model rather than an autoregressive one and returns an empty string on
+> silence instead of inventing subtitle boilerplate: on the same 3s of
+> silence, Whisper produced `"Thank you."` and Parakeet produced `""`.
+>
+> The phantom-phrase blocklist and repetition detector described below were
+> therefore never built. This document is kept for the research it contains,
+> not as a plan. See issue #5.
+
 **Date:** 2026-05-13
 **Issue:** [#5](https://github.com/kenodressel/sabbel/issues/5)
 **Status:** Approved (pending user review of spec)
