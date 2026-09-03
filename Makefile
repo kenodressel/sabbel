@@ -7,7 +7,7 @@ INSTALL_APP_DIR = $(HOME)/Applications/Sabbel.app
 LAUNCH_DOMAIN = gui/$(shell id -u)
 LAUNCH_SERVICE = $(LAUNCH_DOMAIN)/$(PLIST_NAME)
 
-.PHONY: run build-app install-app reinstall-app ensure-app-installed autostart autostart-remove stop restart status setup-dictionary download-model clean help
+.PHONY: run build-app install-app reinstall-app ensure-app-installed autostart autostart-remove stop restart status download-model clean help
 
 run: ## Start Sabbel (foreground)
 	uv run sabbel
@@ -94,7 +94,6 @@ autostart: ensure-app-installed ## Set up Sabbel to start on login
 	@sed "s|__APP_BUNDLE__|$(INSTALL_APP_DIR)|g; s|__PROJECT__|$(PROJECT_DIR)|g" \
 		scripts/com.sabbel.agent.plist > $(PLIST_PATH)
 	@mkdir -p $(CONFIG_DIR)
-	@test -f $(CONFIG_DIR)/dictionary.toml || cp scripts/dictionary.example.toml $(CONFIG_DIR)/dictionary.toml
 	@launchctl bootout $(LAUNCH_SERVICE) >/dev/null 2>&1 || true
 	@launchctl bootstrap $(LAUNCH_DOMAIN) $(PLIST_PATH)
 	@launchctl kickstart -k $(LAUNCH_SERVICE) >/dev/null
@@ -136,13 +135,8 @@ status: ## Check if Sabbel is running
 		echo "✗ LaunchAgent not installed."; \
 	fi
 
-setup-dictionary: ## Open dictionary for editing
-	@mkdir -p $(CONFIG_DIR)
-	@test -f $(CONFIG_DIR)/dictionary.toml || cp scripts/dictionary.example.toml $(CONFIG_DIR)/dictionary.toml
-	@open -t $(CONFIG_DIR)/dictionary.toml
-
-download-model: ## Pre-download Whisper model (~1.5GB)
-	uv run python -c "import mlx_whisper, numpy as np; mlx_whisper.transcribe(np.zeros(16000, dtype=np.float32), path_or_hf_repo='mlx-community/whisper-large-v3-turbo')"
+download-model: ## Pre-download Parakeet model (~2.3GB)
+	uv run python -c "from sabbel.transcriber import TranscriptionEngine; TranscriptionEngine().warmup()"
 	@echo "✓ Model cached."
 
 clean: ## Remove all build artifacts (forces full rebuild)

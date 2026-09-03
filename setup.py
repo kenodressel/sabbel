@@ -72,6 +72,48 @@ def _relpath(p):
 frameworks = [_relpath(p) for p in (libmlx, libportaudio) if p]
 
 # ---------------------------------------------------------------------------
+# Parakeet engine dependencies
+# ---------------------------------------------------------------------------
+
+PARAKEET_PACKAGES = [
+    "parakeet_mlx",
+    "librosa",      # parakeet_mlx.audio builds mel filterbanks with it
+    "dacite",       # parakeet_mlx.utils.from_dict
+    "soundfile",    # librosa I/O backend, ships a native libsndfile
+    "soxr",         # librosa resampler, native
+    "lazy_loader",  # librosa's submodule loading
+    "pooch",
+    "joblib",
+    "sklearn",
+    "scipy",
+    "numba",
+    "llvmlite",
+    "msgpack",
+    "audioread",
+    "decorator",
+    "narwhals",
+    "threadpoolctl",
+    "platformdirs",
+]
+
+def _installed_packages(names):
+    """Keep only packages importable in this environment.
+
+    The list above is deliberately generous — librosa's dependency set differs
+    across versions (numba/llvmlite were dropped in 1.0), and naming a package
+    py2app can't find is a hard build failure.
+    """
+    import importlib.util
+    keep = []
+    for name in names:
+        try:
+            if importlib.util.find_spec(name) is not None:
+                keep.append(name)
+        except Exception:
+            continue
+    return keep
+
+# ---------------------------------------------------------------------------
 # py2app options
 # ---------------------------------------------------------------------------
 
@@ -89,8 +131,7 @@ OPTIONS = {
         # We omit it from packages and rely on the module graph to
         # discover individual mlx modules through import analysis.
         # Native libs (libmlx.dylib, mlx.metallib) are in frameworks.
-        "mlx_whisper",
-    ],
+    ] + _installed_packages(PARAKEET_PACKAGES),
     "includes": [
         "pynput.keyboard._darwin",
         "pynput.mouse._darwin",
@@ -113,6 +154,15 @@ OPTIONS = {
         "CFBundleVersion": _BUNDLE_VERSION,
         "LSMinimumSystemVersion": "14.0",
         "LSUIElement": True,
+        # LaunchServices starts the bundle without a usable LC_CTYPE, so
+        # Python's open() falls back to ASCII and any non-ASCII byte raises
+        # UnicodeDecodeError. Our own code passes encoding="utf-8" explicitly,
+        # but third-party code does not: parakeet-mlx reads the model's
+        # config.json with a bare open() and crashes on the em-dash inside it.
+        # UTF-8 mode fixes the default for the whole process. Both launch paths
+        # go through LaunchServices (the LaunchAgent runs `open -a`), so this
+        # covers manual launch and autostart alike.
+        "LSEnvironment": {"PYTHONUTF8": "1"},
         "NSMicrophoneUsageDescription": (
             "Sabbel needs microphone access to transcribe your speech locally."
         ),

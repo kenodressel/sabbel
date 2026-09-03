@@ -15,8 +15,8 @@ from sabbel.config import SabbelConfig
 from sabbel.recorder import AudioRecorder, list_input_devices
 from sabbel.transcriber import TranscriptionEngine
 from sabbel.hotkey import HotkeyManager
-from sabbel.injector import inject_text
-from sabbel.dictionary import load_dictionary, apply_replacements, get_initial_prompt
+from sabbel import injector
+from sabbel.injector import capture_focus_target, inject_text
 from sabbel.permissions import check_accessibility, check_microphone
 from sabbel.preferences import load_preferences, save_preference
 
@@ -39,28 +39,6 @@ class _MicMenuDelegate(NSObject):
             self._callback()
         except Exception:
             logging.exception("Mic menu refresh failed")
-
-
-def _normalize_language(language: str | None) -> str | None:
-    if language in {"de", "en"}:
-        return language
-    return None
-
-
-def _language_menu_title(language: str | None) -> str:
-    if language == "de":
-        return "Language: Deutsch"
-    if language == "en":
-        return "Language: English"
-    return "Language: Auto"
-
-
-def _next_language(language: str | None) -> str | None:
-    if language is None:
-        return "de"
-    if language == "de":
-        return "en"
-    return None
 
 
 def _build_mic_menu_spec(devices: list[dict], selected: str | None) -> list[dict]:
@@ -208,10 +186,6 @@ class SabbelApp(rumps.App):
             quit_button="Quit",
         )
         self._config = config
-        self._language = _normalize_language(config.language)
-
-        # Dictionary
-        self._dictionary = load_dictionary()
 
         # History (opt-in; toggleable via menu, persisted to preferences.json)
         self._history_path = Path.home() / ".config" / "sabbel" / "history.log"
@@ -219,14 +193,12 @@ class SabbelApp(rumps.App):
         self._history_enabled = prefs.get("history_enabled", config.history_enabled)
         self._audio_device: str | None = prefs.get("audio_device")
 
-        # Menu — language cycle: Auto → Deutsch → English → Auto
         from sabbel import __version__
         self._version = __version__
         self._latest_version: str | None = None
         self._status_item = rumps.MenuItem("Status: Starting")
-        self._lang_item = rumps.MenuItem(_language_menu_title(self._language))
         self._version_item = rumps.MenuItem(f"v{__version__}")
-        menu_items: list = [self._status_item, self._lang_item]
+        menu_items: list = [self._status_item]
 
         # History submenu: always visible so users can discover the feature.
         # "Save history" is a checkable toggle that writes to preferences.json.
@@ -263,7 +235,6 @@ class SabbelApp(rumps.App):
         self._rebuild_mic_menu()
         self._mic_delegate = None  # Hold ref so PyObjC doesn't release it.
         self._attach_mic_menu_delegate()
-        self._lang_item.set_callback(self._cycle_language)
 
         # Components
         self._recorder = AudioRecorder(
@@ -277,6 +248,7 @@ class SabbelApp(rumps.App):
         self._hotkey = HotkeyManager(
             on_start=self._on_recording_start,
             on_stop=self._on_recording_stop,
+            on_cancel=self._on_recording_cancel,
             hotkey=config.hotkey,
         )
 
@@ -293,11 +265,12 @@ class SabbelApp(rumps.App):
         self._error_timer: rumps.Timer | None = None
         self._hotkey_started = False
         self._model_ready = False
+        # App captured at record start; the transcription is pasted back there.
+        self._focus_target: dict | None = None
+        # True only between a successful recorder start and its stop, so a
+        # release that follows a blocked start doesn't queue an empty buffer.
+        self._capturing = False
         self._permission_thread: threading.Thread | None = None
-
-    def _cycle_language(self, sender):
-        self._language = _next_language(self._language)
-        sender.title = _language_menu_title(self._language)
 
     def _attach_mic_menu_delegate(self):
         """Hook NSMenuDelegate.menuWillOpen_ so the device list refreshes
@@ -373,10 +346,30 @@ class SabbelApp(rumps.App):
         self._status_item.title = f"Status: {message}"
 
     def _warmup(self):
-        self._transcriber.warmup()
+        try:
+            self._transcriber.warmup()
+        except Exception as exc:
+            # Runs on a daemon thread: without this the thread dies silently,
+            # _model_ready stays False, and the app sits at "Loading model..."
+            # forever while every hotkey press is logged as "blocked".
+            logging.exception("Model warmup failed")
+            callAfter(lambda: self._show_error("Model failed"))
+            callAfter(lambda m=str(exc): self._notify_model_failed(m))
+            return
         self._model_ready = True
-        logging.info("Whisper warmup completed")
+        logging.info("%s warmup completed", type(self._transcriber).__name__)
         callAfter(self._set_idle)
+
+    def _notify_model_failed(self, message: str) -> None:
+        try:
+            rumps.notification(
+                title="Sabbel",
+                subtitle="Model could not be loaded",
+                message=message[:200],
+                sound=False,
+            )
+        except Exception:
+            logging.exception("Failed to send model failure notification")
 
     def _save_to_history(self, text: str) -> None:
         if not self._history_enabled:
@@ -565,6 +558,17 @@ class SabbelApp(rumps.App):
         except Exception:
             logging.exception("Failed to send model-loading notification")
 
+    def _notify_dead_stream(self) -> None:
+        try:
+            rumps.notification(
+                title="Sabbel",
+                subtitle="Microphone delivered no signal",
+                message="The audio device was reset. Please record again.",
+                sound=False,
+            )
+        except Exception:
+            logging.exception("Failed to send dead-stream notification")
+
     def _notify_no_audio(self):
         try:
             rumps.notification(
@@ -602,8 +606,12 @@ class SabbelApp(rumps.App):
             callAfter(self._notify_model_loading)
             return
         logging.info("Recording start requested")
+        # Snapshot the target app now: transcription takes seconds and the user
+        # often switches windows while it runs.
+        self._focus_target = capture_focus_target()
         try:
             self._recorder.start()
+            self._capturing = True
         except sd.PortAudioError:
             logging.exception("Recorder error")
             self._recorder.last_missing_device = None
@@ -621,10 +629,26 @@ class SabbelApp(rumps.App):
 
     def _on_recording_stop(self):
         """Called from pynput thread."""
+        if not self._capturing:
+            logging.info("Recording stop ignored — capture never started")
+            return
+        self._capturing = False
         logging.info("Recording stop requested")
         self._recorder.stop()
         callAfter(self._set_working)
         self._transcribe_event.set()
+
+    def _on_recording_cancel(self):
+        """Hotkey was released after a combo — drop the audio, transcribe nothing.
+
+        Called from the pynput thread.
+        """
+        if not self._capturing:
+            return
+        self._capturing = False
+        self._recorder.stop()
+        self._recorder.get_audio()  # drain, so it can't leak into the next take
+        callAfter(self._set_idle)
 
     def _set_recording(self):
         self._stop_spinner()
@@ -655,10 +679,6 @@ class SabbelApp(rumps.App):
             if not self._running:
                 break
 
-            # Reload dictionary each time (hot-reload)
-            self._dictionary = load_dictionary()
-            initial_prompt = get_initial_prompt(self._dictionary)
-
             audio = self._recorder.get_audio()
             audio_samples = len(audio)
             audio_duration = audio_samples / 16000 if audio_samples else 0.0
@@ -677,6 +697,13 @@ class SabbelApp(rumps.App):
                 callAfter(lambda: self._show_error("Too short"))
                 continue
 
+            if self._recorder.is_dead_stream(audio):
+                logging.warning("Dead capture stream — refreshing audio devices")
+                self._recorder.refresh_devices()
+                callAfter(lambda: self._show_error("Mic reset"))
+                callAfter(self._notify_dead_stream)
+                continue
+
             if not self._recorder.has_speech(audio):
                 logging.info("Recording rejected: no speech detected")
                 callAfter(lambda: self._show_error("No audio"))
@@ -684,11 +711,7 @@ class SabbelApp(rumps.App):
                 continue
 
             try:
-                text = self._transcriber.transcribe(
-                    audio,
-                    language=self._language,
-                    initial_prompt=initial_prompt,
-                )
+                text = self._transcriber.transcribe(audio)
             except Exception:
                 logging.exception("Transcription error")
                 callAfter(lambda: self._show_error("Error"))
@@ -699,31 +722,47 @@ class SabbelApp(rumps.App):
                 callAfter(lambda: self._show_error("Not recognized"))
                 continue
 
-            # Apply dictionary replacements
-            replacements = self._dictionary.get("replacements", {})
-            if replacements:
-                text = apply_replacements(text, replacements)
-
             logging.info("Transcription succeeded: chars=%s", len(text))
             self._save_to_history(text)
             callAfter(lambda t=text: self._do_inject(t))
 
+    # Each outcome needs its own wording — telling someone their text is in the
+    # clipboard when we deliberately withheld it from a password field is worse
+    # than saying nothing.
+    _INJECT_NOTICES = {
+        injector.LEFT_IN_CLIPBOARD: (
+            "Text copied to clipboard",
+            "No text field detected. Paste manually with Cmd+V.",
+        ),
+        injector.FOCUS_CHANGED: (
+            "Text copied to clipboard",
+            "You switched apps while it was transcribing. Paste with Cmd+V.",
+        ),
+        injector.REFUSED_SECURE: (
+            "Dictation discarded",
+            "Sabbel does not type into password fields.",
+        ),
+    }
+
     def _do_inject(self, text: str):
-        pasted = inject_text(
+        outcome = inject_text(
             text,
             pre_paste_delay=self._config.pre_paste_delay,
             post_paste_delay=self._config.post_paste_delay,
+            target=self._focus_target,
         )
-        if not pasted:
+        notice = self._INJECT_NOTICES.get(outcome)
+        if notice is not None:
+            subtitle, message = notice
             try:
                 rumps.notification(
                     title="Sabbel",
-                    subtitle="Text copied to clipboard",
-                    message="No text field detected. Paste manually with Cmd+V.",
+                    subtitle=subtitle,
+                    message=message,
                     sound=False,
                 )
             except Exception:
-                logging.exception("Failed to send clipboard notification")
+                logging.exception("Failed to send injection notification")
         self._set_idle()
 
     def terminate_(self, sender):
