@@ -1,4 +1,5 @@
 import time
+import queue
 import threading
 import logging
 import subprocess
@@ -253,7 +254,10 @@ class SabbelApp(rumps.App):
         )
 
         # Worker thread event
-        self._transcribe_event = threading.Event()
+        # Finished takes, each carrying its own audio AND the app that was
+        # focused when it started. A shared slot would let a second press
+        # overwrite the first take's target while it is still transcribing.
+        self._takes: queue.Queue = queue.Queue()
         self._worker_thread: threading.Thread | None = None
         self._running = True
 
@@ -270,6 +274,8 @@ class SabbelApp(rumps.App):
         # True only between a successful recorder start and its stop, so a
         # release that follows a blocked start doesn't queue an empty buffer.
         self._capturing = False
+        # Sticky: the model never loaded, so no amount of waiting fixes it.
+        self._model_failed = False
         self._permission_thread: threading.Thread | None = None
 
     def _attach_mic_menu_delegate(self):
@@ -353,12 +359,23 @@ class SabbelApp(rumps.App):
             # _model_ready stays False, and the app sits at "Loading model..."
             # forever while every hotkey press is logged as "blocked".
             logging.exception("Model warmup failed")
-            callAfter(lambda: self._show_error("Model failed"))
+            self._model_failed = True
+            # Deliberately not _show_error: that auto-clears to "Ready" after
+            # two seconds, which would claim the app works while every hotkey
+            # press is refused.
+            callAfter(self._set_model_failed)
             callAfter(lambda m=str(exc): self._notify_model_failed(m))
             return
         self._model_ready = True
         logging.info("%s warmup completed", type(self._transcriber).__name__)
         callAfter(self._set_idle)
+
+    def _set_model_failed(self) -> None:
+        """Persistent failure state — survives the error timer."""
+        self._stop_spinner()
+        self._stop_error_timer()
+        self.title = "⚠️"
+        self._set_status("Model failed — restart Sabbel")
 
     def _notify_model_failed(self, message: str) -> None:
         try:
@@ -532,6 +549,9 @@ class SabbelApp(rumps.App):
     def _set_idle(self):
         self._stop_spinner()
         self._stop_error_timer()
+        if self._model_failed:
+            # Never report "Ready" when every press will be refused.
+            return
         if self._hotkey_started:
             self._set_status("Ready")
         self.title = "🎙"
@@ -563,7 +583,7 @@ class SabbelApp(rumps.App):
             rumps.notification(
                 title="Sabbel",
                 subtitle="Microphone delivered no signal",
-                message="The audio device was reset. Please record again.",
+                message="Check that the mic isn't muted and input volume isn't zero.",
                 sound=False,
             )
         except Exception:
@@ -635,8 +655,10 @@ class SabbelApp(rumps.App):
         self._capturing = False
         logging.info("Recording stop requested")
         self._recorder.stop()
+        # Drain here, on the thread that owns the take, so audio and focus
+        # target travel together and no second drain can race this one.
+        self._takes.put((self._recorder.get_audio(), self._focus_target))
         callAfter(self._set_working)
-        self._transcribe_event.set()
 
     def _on_recording_cancel(self):
         """Hotkey was released after a combo — drop the audio, transcribe nothing.
@@ -673,13 +695,11 @@ class SabbelApp(rumps.App):
 
     def _transcription_worker(self):
         while self._running:
-            self._transcribe_event.wait()
-            self._transcribe_event.clear()
-
-            if not self._running:
+            take = self._takes.get()
+            if take is None or not self._running:
                 break
+            audio, target = take
 
-            audio = self._recorder.get_audio()
             audio_samples = len(audio)
             audio_duration = audio_samples / 16000 if audio_samples else 0.0
             audio_rms = (
@@ -698,9 +718,8 @@ class SabbelApp(rumps.App):
                 continue
 
             if self._recorder.is_dead_stream(audio):
-                logging.warning("Dead capture stream — refreshing audio devices")
-                self._recorder.refresh_devices()
-                callAfter(lambda: self._show_error("Mic reset"))
+                logging.warning("Capture returned pure silence — mic muted or stream dead")
+                callAfter(lambda: self._show_error("No signal"))
                 callAfter(self._notify_dead_stream)
                 continue
 
@@ -724,7 +743,7 @@ class SabbelApp(rumps.App):
 
             logging.info("Transcription succeeded: chars=%s", len(text))
             self._save_to_history(text)
-            callAfter(lambda t=text: self._do_inject(t))
+            callAfter(lambda t=text, g=target: self._do_inject(t, g))
 
     # Each outcome needs its own wording — telling someone their text is in the
     # clipboard when we deliberately withheld it from a password field is worse
@@ -744,13 +763,19 @@ class SabbelApp(rumps.App):
         ),
     }
 
-    def _do_inject(self, text: str):
-        outcome = inject_text(
-            text,
-            pre_paste_delay=self._config.pre_paste_delay,
-            post_paste_delay=self._config.post_paste_delay,
-            target=self._focus_target,
-        )
+    def _do_inject(self, text: str, target: dict | None = None):
+        try:
+            outcome = inject_text(
+                text,
+                pre_paste_delay=self._config.pre_paste_delay,
+                post_paste_delay=self._config.post_paste_delay,
+                target=target,
+            )
+        except Exception:
+            # Unguarded PyObjC here would leave the spinner running forever.
+            logging.exception("Text injection failed")
+            self._show_error("Paste failed")
+            return
         notice = self._INJECT_NOTICES.get(outcome)
         if notice is not None:
             subtitle, message = notice
@@ -770,7 +795,7 @@ class SabbelApp(rumps.App):
         self._stop_spinner()
         self._stop_error_timer()
         self._hotkey.stop()
-        self._transcribe_event.set()
+        self._takes.put(None)
         if self._worker_thread is not None and self._worker_thread.is_alive():
             self._worker_thread.join(timeout=1.0)
         self._recorder.close()

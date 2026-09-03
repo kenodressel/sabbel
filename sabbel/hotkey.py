@@ -56,7 +56,12 @@ class HotkeyManager:
             self._listener.stop()
             self._listener = None
 
-    def _on_press(self, key, *args):
+    def _on_press(self, key, injected=False):
+        # pynput passes an `injected` flag on macOS. Keystrokes synthesised by
+        # other tools (Karabiner, text expanders, launchers) would otherwise
+        # count as a combo and silently cancel the dictation in progress.
+        if injected:
+            return
         if key == self._hotkey:
             if not self._recording:
                 logging.info("Hotkey press detected")
@@ -69,7 +74,9 @@ class HotkeyManager:
             logging.info("Other key during hotkey hold — treating as combo")
             self._combo = True
 
-    def _on_release(self, key, *args):
+    def _on_release(self, key, injected=False):
+        if injected:
+            return
         if key != self._hotkey or not self._recording:
             return
         self._recording = False

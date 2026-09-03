@@ -100,8 +100,9 @@ def _installed_packages(names):
     """Keep only packages importable in this environment.
 
     The list above is deliberately generous — librosa's dependency set differs
-    across versions (numba/llvmlite were dropped in 1.0), and naming a package
-    py2app can't find is a hard build failure.
+    across versions, and naming a package py2app cannot find is a hard build
+    failure. Bundle contents therefore depend on what the build venv holds;
+    CI builds a fresh venv from the lock, so it is deterministic there.
     """
     import importlib.util
     keep = []
@@ -154,14 +155,11 @@ OPTIONS = {
         "CFBundleVersion": _BUNDLE_VERSION,
         "LSMinimumSystemVersion": "14.0",
         "LSUIElement": True,
-        # LaunchServices starts the bundle without a usable LC_CTYPE, so
-        # Python's open() falls back to ASCII and any non-ASCII byte raises
-        # UnicodeDecodeError. Our own code passes encoding="utf-8" explicitly,
-        # but third-party code does not: parakeet-mlx reads the model's
-        # config.json with a bare open() and crashes on the em-dash inside it.
-        # UTF-8 mode fixes the default for the whole process. Both launch paths
-        # go through LaunchServices (the LaunchAgent runs `open -a`), so this
-        # covers manual launch and autostart alike.
+        # Belt-and-braces for the ASCII-locale bug; the actual fix is the
+        # setlocale call in sabbel/__main__.py. py2app's stub restores the
+        # launch-time LC_CTYPE *after* Py_Initialize(), and LaunchServices
+        # supplies none, so open() defaults to ASCII no matter what this
+        # variable says.
         "LSEnvironment": {"PYTHONUTF8": "1"},
         "NSMicrophoneUsageDescription": (
             "Sabbel needs microphone access to transcribe your speech locally."

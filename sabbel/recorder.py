@@ -123,8 +123,7 @@ class AudioRecorder:
         self._close_stream()
 
     def start(self):
-        while not self._queue.empty():
-            self._queue.get()
+        self._drain()
 
         # Always refresh: PortAudio caches devices at init, so hot-plugged
         # mics (AirPods, dock, webcam) only become visible after a cycle.
@@ -154,10 +153,23 @@ class AudioRecorder:
         if self._stream is not None and self._stream.active:
             self._stream.stop()
 
-    def get_audio(self) -> np.ndarray:
+    def _drain(self) -> list[np.ndarray]:
+        """Empty the capture queue without ever blocking.
+
+        `while not empty(): get()` looks safe but is not: two threads can both
+        see a non-empty queue, one takes the last chunk, and the other blocks
+        in get() forever — killing the hotkey or the transcription worker for
+        the rest of the session.
+        """
         chunks = []
-        while not self._queue.empty():
-            chunks.append(self._queue.get())
+        while True:
+            try:
+                chunks.append(self._queue.get_nowait())
+            except queue.Empty:
+                return chunks
+
+    def get_audio(self) -> np.ndarray:
+        chunks = self._drain()
         if not chunks:
             return np.array([], dtype=np.float32)
         return np.concatenate(chunks, axis=0).flatten()
@@ -174,8 +186,10 @@ class AudioRecorder:
         closes on the internal mic, and when a stream is reopened faster than
         the device primes.
 
-        Worth separating from `has_speech`, because the recovery differs — the
-        user re-recording into the same dead stream will just fail again.
+        Note this cannot distinguish a dead stream from a muted mic or an
+        input volume of zero — those also deliver exact zeros. What it buys is
+        a message that names the real possibilities instead of the generic
+        "no audio", which reads as "you were too quiet".
         """
         if len(audio) == 0:
             return False
