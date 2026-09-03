@@ -1,5 +1,17 @@
 # Whisper Hallucination Filtering Implementation Plan
 
+> [!WARNING]
+> **Superseded — not implemented, and no longer needed.**
+>
+> Sabbel switched from Whisper to NVIDIA Parakeet TDT. Parakeet is a TDT/CTC
+> model rather than an autoregressive one and returns an empty string on
+> silence instead of inventing subtitle boilerplate: on the same 3s of
+> silence, Whisper produced `"Thank you."` and Parakeet produced `""`.
+>
+> The phantom-phrase blocklist and repetition detector described below were
+> therefore never built. This document is kept for the research it contains,
+> not as a plan. See issue #5.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Catch and drop Whisper hallucinations (repetition patterns + canned phantom phrases) after transcription, so the user gets a brief "Likely noise" badge instead of garbage being pasted.
