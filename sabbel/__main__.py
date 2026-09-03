@@ -7,9 +7,10 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 # Force a UTF-8 locale before anything reads a file.
 #
-# The py2app stub initialises the interpreter without honouring PYTHONUTF8, and
-# LaunchServices provides no usable LC_CTYPE, so open() defaults to ASCII and
-# any non-ASCII byte raises UnicodeDecodeError. Our own code passes
+# py2app's stub restores the launch-time LC_CTYPE *after* Py_Initialize(), and
+# LaunchServices supplies none, so open() defaults to ASCII and any non-ASCII
+# byte raises UnicodeDecodeError — PYTHONUTF8 in the plist cannot win against
+# that ordering. Our own code passes
 # encoding="utf-8" explicitly; third-party code does not — parakeet-mlx reads
 # the model's config.json with a bare open() and dies on the em-dash in it.
 #

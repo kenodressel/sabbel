@@ -256,3 +256,172 @@ def test_record_update_check_creates_parent(tmp_path):
     assert state.exists()
     import json
     assert json.loads(state.read_text())["last_check"] == 1_234_567.0
+
+
+# --- take handoff: audio and focus target must travel together --------------
+
+
+def _wired_app():
+    """A SabbelApp with just the recording/worker wiring populated."""
+    import queue as _queue
+
+    app = SabbelApp.__new__(SabbelApp)
+    app._takes = _queue.Queue()
+    app._capturing = True
+    app._focus_target = {"pid": 1, "name": "Notes"}
+    app._recorder = MagicMock()
+    app._recorder.get_audio.return_value = "audio-1"
+    return app
+
+
+def test_recording_stop_queues_audio_with_its_own_target():
+    app = _wired_app()
+    with patch("sabbel.app.callAfter", lambda fn, *a: None):
+        app._on_recording_stop()
+
+    audio, target = app._takes.get_nowait()
+    assert audio == "audio-1"
+    assert target == {"pid": 1, "name": "Notes"}
+
+
+def test_second_recording_cannot_steal_the_first_takes_target():
+    """The regression: a shared slot let take 2 redirect take 1's paste.
+
+    Dictate in Notes, release, switch to Slack and start again while the first
+    is still transcribing — take 1 must still be bound to Notes.
+    """
+    app = _wired_app()
+    with patch("sabbel.app.callAfter", lambda fn, *a: None):
+        app._on_recording_stop()
+
+        # Take 2 starts in a different app while take 1 is still queued.
+        app._focus_target = {"pid": 2, "name": "Slack"}
+        app._capturing = True
+        app._recorder.get_audio.return_value = "audio-2"
+        app._on_recording_stop()
+
+    assert app._takes.get_nowait() == ("audio-1", {"pid": 1, "name": "Notes"})
+    assert app._takes.get_nowait() == ("audio-2", {"pid": 2, "name": "Slack"})
+
+
+def test_recording_stop_without_capture_queues_nothing():
+    """A release after a blocked start must not hand the worker an empty take."""
+    app = _wired_app()
+    app._capturing = False
+    with patch("sabbel.app.callAfter", lambda fn, *a: None):
+        app._on_recording_stop()
+    assert app._takes.empty()
+
+
+def test_recording_cancel_drops_audio_and_queues_nothing():
+    app = _wired_app()
+    with patch("sabbel.app.callAfter", lambda fn, *a: None):
+        app._on_recording_cancel()
+
+    assert app._takes.empty()
+    app._recorder.get_audio.assert_called_once()  # drained, not left behind
+    assert app._capturing is False
+
+
+# --- model failure is sticky ------------------------------------------------
+
+
+def test_warmup_failure_marks_model_failed():
+    app = SabbelApp.__new__(SabbelApp)
+    app._transcriber = MagicMock()
+    app._transcriber.warmup.side_effect = RuntimeError("no model")
+    app._model_ready = False
+    app._model_failed = False
+
+    with patch("sabbel.app.callAfter", lambda fn, *a: None):
+        app._warmup()
+
+    assert app._model_failed is True
+    assert app._model_ready is False
+
+
+def test_idle_never_reports_ready_after_model_failure():
+    """It used to: _show_error's 2s timer cleared to "Ready" while every
+    hotkey press was still being refused."""
+    app = SabbelApp.__new__(SabbelApp)
+    app._model_failed = True
+    app._hotkey_started = True
+    app._stop_spinner = MagicMock()
+    app._stop_error_timer = MagicMock()
+    app._set_status = MagicMock()
+
+    app._set_idle()
+
+    app._set_status.assert_not_called()
+
+
+def test_idle_reports_ready_when_model_is_fine():
+    app = SabbelApp.__new__(SabbelApp)
+    app._model_failed = False
+    app._hotkey_started = True
+    app._stop_spinner = MagicMock()
+    app._stop_error_timer = MagicMock()
+    app._set_status = MagicMock()
+    type(app).title = "x"  # rumps property would touch the status item
+    try:
+        app._set_idle()
+    finally:
+        del type(app).title
+
+    app._set_status.assert_called_once_with("Ready")
+
+
+# --- injection outcomes -----------------------------------------------------
+
+
+def _inject_app():
+    app = SabbelApp.__new__(SabbelApp)
+    app._config = MagicMock(pre_paste_delay=0, post_paste_delay=0)
+    app._set_idle = MagicMock()
+    app._show_error = MagicMock()
+    return app
+
+
+def test_secure_field_outcome_does_not_claim_the_clipboard():
+    """Telling someone to press Cmd+V is wrong when nothing was copied."""
+    from sabbel import injector
+
+    app = _inject_app()
+    with patch("sabbel.app.inject_text", return_value=injector.REFUSED_SECURE), \
+         patch("sabbel.app.rumps.notification") as note:
+        app._do_inject("hunter2", target=None)
+
+    subtitle = note.call_args.kwargs["subtitle"]
+    message = note.call_args.kwargs["message"]
+    assert "clipboard" not in (subtitle + message).lower()
+
+
+def test_successful_paste_notifies_nothing():
+    from sabbel import injector
+
+    app = _inject_app()
+    with patch("sabbel.app.inject_text", return_value=injector.PASTED), \
+         patch("sabbel.app.rumps.notification") as note:
+        app._do_inject("hallo", target=None)
+
+    note.assert_not_called()
+    app._set_idle.assert_called_once()
+
+
+def test_inject_passes_the_takes_own_target():
+    from sabbel import injector
+
+    app = _inject_app()
+    target = {"pid": 7, "name": "Notes"}
+    with patch("sabbel.app.inject_text", return_value=injector.PASTED) as inject:
+        app._do_inject("hallo", target=target)
+
+    assert inject.call_args.kwargs["target"] is target
+
+
+def test_inject_exception_does_not_leave_the_spinner_running():
+    app = _inject_app()
+    with patch("sabbel.app.inject_text", side_effect=RuntimeError("pyobjc blew up")):
+        app._do_inject("hallo", target=None)
+
+    app._show_error.assert_called_once()

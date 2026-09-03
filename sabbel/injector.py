@@ -411,7 +411,11 @@ def inject_text(
                 break
             time.sleep(0.02)
         if not landed:
-            logging.info("Paste not observed within %.1fs", verify_timeout)
+            # The field was readable and the text never appeared, so the paste
+            # genuinely failed. Restoring now would destroy the transcript —
+            # leave it in the clipboard instead.
+            logging.info("Paste not observed within %.1fs — leaving text in clipboard", verify_timeout)
+            return LEFT_IN_CLIPBOARD
 
     # Did someone else touch the clipboard while we were pasting? (The user
     # copied something, or another app wrote to it.)

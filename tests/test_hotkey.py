@@ -100,3 +100,34 @@ def test_parse_hotkey_accepts_names_and_chars():
 def test_parse_hotkey_rejects_unknown():
     with pytest.raises(ValueError, match="Unknown hotkey"):
         _parse_hotkey("nope_key")
+
+
+# --- injected events --------------------------------------------------------
+
+
+def test_injected_keystroke_does_not_cancel_dictation(hk):
+    """pynput passes `injected`; other tools' synthetic keys must not count.
+
+    Karabiner, text expanders and launchers all post synthetic keystrokes.
+    Treating one as a combo would silently discard the dictation in progress.
+    """
+    hk._on_press(Key.alt_r, False)
+    hk._on_press(KeyCode.from_char("v"), True)   # injected by some other tool
+    hk._on_release(KeyCode.from_char("v"), True)
+    hk._on_release(Key.alt_r, False)
+
+    hk._on_stop.assert_called_once()
+    hk._on_cancel.assert_not_called()
+
+
+def test_injected_hotkey_press_is_ignored(hk):
+    hk._on_press(Key.alt_r, True)
+    hk._on_start.assert_not_called()
+
+
+def test_real_pynput_signature_is_accepted(hk):
+    """pynput calls on_press(key, injected) positionally — not on_press(key)."""
+    hk._on_press(Key.alt_r, False)
+    hk._on_release(Key.alt_r, False)
+    hk._on_start.assert_called_once()
+    hk._on_stop.assert_called_once()
