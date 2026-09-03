@@ -12,7 +12,7 @@ import objc
 from Foundation import NSObject
 from PyObjCTools.AppHelper import callAfter
 
-from sabbel.config import SabbelConfig
+from sabbel.config import SabbelConfig, migrate_config
 from sabbel.recorder import AudioRecorder, list_input_devices
 from sabbel.transcriber import TranscriptionEngine
 from sabbel.hotkey import HotkeyManager
@@ -304,16 +304,18 @@ class SabbelApp(rumps.App):
         # Create error reset timer (stopped, reused)
         self._error_timer = rumps.Timer(self._clear_error, 2.0)
 
-        # Start worker thread
+        # Download + warm up the model on the worker thread itself, not on one
+        # of its own. MLX >=0.32 owns streams per thread, so a model loaded on
+        # one thread cannot be evaluated on another: whichever thread calls
+        # from_pretrained() has to be the one calling generate() forever after.
+        # Splitting them left every non-silent take failing with "There is no
+        # Stream(cpu, N) in current thread".
+        self.title = "⏳"
+        self._set_status("Loading model...")
         self._worker_thread = threading.Thread(
             target=self._transcription_worker, daemon=True
         )
         self._worker_thread.start()
-
-        # Download + warm up model
-        self.title = "⏳"
-        self._set_status("Loading model...")
-        threading.Thread(target=self._warmup, daemon=True).start()
 
         self._permission_thread = threading.Thread(
             target=self._monitor_permissions, daemon=True
@@ -368,6 +370,15 @@ class SabbelApp(rumps.App):
             return
         self._model_ready = True
         logging.info("%s warmup completed", type(self._transcriber).__name__)
+        fallback = self._transcriber.fallback
+        if fallback is not None:
+            # Reaching here proves the default model loaded, so the network
+            # and cache are fine and the configured repo really is unusable —
+            # not merely unreachable. Safe to take it out of config.toml.
+            migrated = bool(migrate_config(drop=[("model", "repo")]))
+            callAfter(
+                lambda f=fallback, m=migrated: self._notify_model_fallback(f, m)
+            )
         callAfter(self._set_idle)
 
     def _set_model_failed(self) -> None:
@@ -376,6 +387,28 @@ class SabbelApp(rumps.App):
         self._stop_error_timer()
         self.title = "⚠️"
         self._set_status("Model failed — restart Sabbel")
+
+    def _notify_model_fallback(self, fallback, migrated: bool = False) -> None:
+        """Dictation works, but not with the model config.toml asked for."""
+        if migrated:
+            message = (
+                f"'{fallback.repo}' could not be loaded, so Sabbel commented "
+                "it out of config.toml (original kept as config.toml.bak)."
+            )
+        else:
+            message = (
+                f"'{fallback.repo}' could not be loaded. Remove the "
+                "[model] section from ~/.config/sabbel/config.toml."
+            )
+        try:
+            rumps.notification(
+                title="Sabbel",
+                subtitle="Using the default model",
+                message=message,
+                sound=False,
+            )
+        except Exception:
+            logging.exception("Failed to send model-fallback notification")
 
     def _notify_model_failed(self, message: str) -> None:
         try:
@@ -694,6 +727,10 @@ class SabbelApp(rumps.App):
         self._spinner_timer = None
 
     def _transcription_worker(self):
+        # Owns the model for the life of the app — see run() for why the load
+        # cannot happen anywhere else.
+        self._warmup()
+
         while self._running:
             take = self._takes.get()
             if take is None or not self._running:

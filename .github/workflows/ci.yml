@@ -29,9 +29,11 @@ jobs:
 
       - name: Install dependencies
         run: |
+          # --frozen, not pip: pip resolves fresh and happily picks up an MLX
+          # the suite has never run against. That is how mlx 0.32 (per-thread
+          # streams) reached a release build while uv.lock still said 0.31.
           FWPYTHON=/Library/Frameworks/Python.framework/Versions/3.13/bin/python3.13
-          $FWPYTHON -m venv .venv
-          .venv/bin/pip install -e '.[dev]'
+          uv sync --frozen --python "$FWPYTHON" --extra dev
 
       - name: Run tests
         run: .venv/bin/python -m pytest tests/ -v

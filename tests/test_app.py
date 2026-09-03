@@ -425,3 +425,150 @@ def test_inject_exception_does_not_leave_the_spinner_running():
         app._do_inject("hallo", target=None)
 
     app._show_error.assert_called_once()
+
+
+# --- a model repo that had to be ignored ------------------------------------
+
+
+@patch("sabbel.app.migrate_config", return_value=["[model] repo — not usable"])
+def test_warmup_notifies_when_the_configured_model_was_ignored(mock_migrate):
+    """Falling back silently turns a stale config.toml into a mystery: the
+    app works, but not with the model the user asked for."""
+    from sabbel.transcriber import ModelFallback
+
+    app = SabbelApp.__new__(SabbelApp)
+    app._transcriber = MagicMock()
+    app._transcriber.fallback = ModelFallback(
+        "mlx-community/whisper-large-v3-turbo", "No such file or directory"
+    )
+    app._model_ready = False
+    app._model_failed = False
+    app._set_idle = MagicMock()
+    app._notify_model_fallback = MagicMock()
+
+    with patch("sabbel.app.callAfter", side_effect=lambda fn, *a: fn()):
+        app._warmup()
+
+    assert app._model_ready is True
+    assert app._model_failed is False
+    app._notify_model_fallback.assert_called_once()
+    assert (
+        app._notify_model_fallback.call_args[0][0].repo
+        == "mlx-community/whisper-large-v3-turbo"
+    )
+    # The stale line is taken out of config.toml, not just ignored in memory.
+    mock_migrate.assert_called_once_with(drop=[("model", "repo")])
+
+
+@patch("sabbel.app.migrate_config")
+def test_warmup_stays_quiet_when_the_configured_model_loaded(mock_migrate):
+    app = SabbelApp.__new__(SabbelApp)
+    app._transcriber = MagicMock()
+    app._transcriber.fallback = None
+    app._model_ready = False
+    app._model_failed = False
+    app._set_idle = MagicMock()
+    app._notify_model_fallback = MagicMock()
+
+    with patch("sabbel.app.callAfter", side_effect=lambda fn, *a: fn()):
+        app._warmup()
+
+    assert app._model_ready is True
+    app._notify_model_fallback.assert_not_called()
+    mock_migrate.assert_not_called()
+
+
+def test_model_fallback_notification_names_the_repo_and_the_file():
+    from sabbel.transcriber import ModelFallback
+
+    app = SabbelApp.__new__(SabbelApp)
+    with patch("sabbel.app.rumps.notification") as mock_notify:
+        app._notify_model_fallback(
+            ModelFallback("mlx-community/whisper-large-v3-turbo", "boom")
+        )
+
+    message = mock_notify.call_args.kwargs["message"]
+    assert "mlx-community/whisper-large-v3-turbo" in message
+    assert "config.toml" in message
+
+
+def test_model_fallback_notification_says_when_the_line_was_removed():
+    """Telling the user to edit a file Sabbel already fixed wastes their time."""
+    from sabbel.transcriber import ModelFallback
+
+    app = SabbelApp.__new__(SabbelApp)
+    with patch("sabbel.app.rumps.notification") as mock_notify:
+        app._notify_model_fallback(
+            ModelFallback("mlx-community/whisper-large-v3-turbo", "boom"),
+            migrated=True,
+        )
+
+    message = mock_notify.call_args.kwargs["message"]
+    assert "config.toml.bak" in message
+    assert "Remove" not in message
+
+
+# --- the model must be loaded on the thread that uses it --------------------
+
+
+def test_model_is_warmed_up_on_the_transcribing_thread():
+    """MLX >=0.32 owns streams per thread: a model loaded on one thread cannot
+    be evaluated on another.
+
+    Warming up on a throwaway thread while the worker transcribed on its own
+    left every non-silent take failing with "There is no Stream(cpu, N) in
+    current thread" — silence still returned empty, so the app looked alive
+    while producing nothing.
+    """
+    import queue as _queue
+    import threading
+
+    import numpy as np
+
+    threads = {}
+
+    def _remember(name, result):
+        def _fn(*_args, **_kwargs):
+            threads[name] = threading.get_ident()
+            return result
+
+        return _fn
+
+    app = SabbelApp.__new__(SabbelApp)
+    app._running = True
+    app._takes = _queue.Queue()
+    app._recorder = MagicMock()
+    app._recorder.is_valid_duration.return_value = True
+    app._recorder.is_dead_stream.return_value = False
+    app._recorder.has_speech.return_value = True
+    app._transcriber = MagicMock()
+    app._transcriber.fallback = None
+    app._transcriber.warmup.side_effect = _remember("warmup", None)
+    app._transcriber.transcribe.side_effect = _remember("transcribe", "Hallo Welt")
+    app._model_ready = False
+    app._model_failed = False
+    app._save_to_history = MagicMock()
+
+    app._takes.put((np.zeros(16000, dtype=np.float32), {"pid": 1, "name": "Notes"}))
+    app._takes.put(None)
+
+    with patch("sabbel.app.callAfter", lambda fn, *a: None):
+        worker = threading.Thread(target=app._transcription_worker)
+        worker.start()
+        worker.join(timeout=5)
+
+    assert not worker.is_alive()
+    assert "warmup" in threads, "the worker never warmed the model up itself"
+    assert threads["warmup"] == threads["transcribe"], (
+        "model loaded on a different thread than it is evaluated on"
+    )
+
+
+def test_run_does_not_warm_up_on_a_separate_thread():
+    """The warmup thread is what bound the model to a thread nobody used."""
+    import inspect
+
+    source = inspect.getsource(SabbelApp.run)
+    assert "self._warmup" not in source, (
+        "run() must not spawn warmup; the transcription worker owns the model"
+    )
