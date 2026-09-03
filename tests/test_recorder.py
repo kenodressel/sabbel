@@ -441,3 +441,30 @@ def test_start_calls_refresh_devices(monkeypatch):
         recorder.start()
 
     assert refresh_calls == ["refreshed"]
+
+
+# --- dead capture stream ----------------------------------------------------
+
+
+def test_dead_stream_detects_exact_zeros():
+    """CoreAudio can hand back a stream that never delivers (sleep, clamshell)."""
+    r = AudioRecorder()
+    assert r.is_dead_stream(np.zeros(16000, dtype=np.float32)) is True
+
+
+def test_quiet_room_is_not_a_dead_stream():
+    """A live mic always has a noise floor — that must not trigger recovery."""
+    r = AudioRecorder()
+    noise = (np.random.randn(16000) * 1e-4).astype(np.float32)
+    assert r.is_dead_stream(noise) is False
+
+
+def test_speech_is_not_a_dead_stream():
+    r = AudioRecorder()
+    assert r.is_dead_stream(np.random.randn(16000).astype(np.float32)) is False
+
+
+def test_empty_buffer_is_not_a_dead_stream():
+    """Nothing captured is a different failure — 'too short' already covers it."""
+    r = AudioRecorder()
+    assert r.is_dead_stream(np.array([], dtype=np.float32)) is False
