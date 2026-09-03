@@ -214,3 +214,19 @@ def test_the_backup_keeps_the_users_own_file_not_an_earlier_migration(tmp_path):
     text = config_file.read_text(encoding="utf-8")
     assert '# language = "de"' in text
     assert '# repo = "mlx-community/whisper-large-v3-turbo"' in text
+
+
+def test_the_backup_is_only_announced_when_it_is_written(tmp_path, caplog):
+    """It claimed to have saved the original on a second migration too, when
+    the guard above had correctly left the existing backup alone."""
+    config_file = _write(
+        tmp_path,
+        '[general]\nlanguage = "de"\nhotkey = "f5"\n\n'
+        '[model]\nrepo = "mlx-community/whisper-large-v3-turbo"\n',
+    )
+
+    with caplog.at_level("INFO"):
+        migrate_config(config_file)
+        migrate_config(config_file, drop=[("model", "repo")])
+
+    assert caplog.text.count("saved as") == 1

@@ -334,12 +334,14 @@ def migrate_config(
 
     backup = path.with_suffix(path.suffix + ".bak")
     scratch = path.with_suffix(path.suffix + ".tmp")
+    saved_backup = False
     try:
         # Only ever the first time: the backup is there to recover the file the
         # user wrote by hand, and a later migration would overwrite it with a
         # copy Sabbel had already edited.
         if not backup.exists():
             backup.write_text(original, encoding="utf-8")
+            saved_backup = True
         scratch.write_text(new_text, encoding="utf-8")
         os.replace(scratch, path)
     except OSError as exc:
@@ -349,5 +351,6 @@ def migrate_config(
 
     for note in notes:
         logging.info("Migrated %s: commented out %s", path, note)
-    logging.info("Original %s saved as %s", path, backup)
+    if saved_backup:
+        logging.info("Original %s saved as %s", path, backup)
     return notes
