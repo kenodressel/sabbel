@@ -779,17 +779,33 @@ class SabbelApp(rumps.App):
         self._takes.put((self._recorder.get_audio(), self._focus_target))
         callAfter(self._set_working)
 
-    def _on_recording_cancel(self):
-        """Hotkey was released after a combo — drop the audio, transcribe nothing.
+    def _on_recording_cancel(self, reason: str = "combo"):
+        """Drop the audio, transcribe nothing. Called from the pynput thread.
 
-        Called from the pynput thread.
+        Two very different events land here. A combo cancel is ⌥-typing and
+        happens dozens of times a day, so it stays silent. Escape is a
+        deliberate abort, and staying silent there reads as a bug — the user
+        spoke and got nothing back, with no sign the app meant it.
         """
         if not self._capturing:
             return
         self._capturing = False
         self._recorder.stop()
         self._recorder.get_audio()  # drain, so it can't leak into the next take
+        if reason == "escape":
+            callAfter(self._notify_cancelled)
         callAfter(self._set_idle)
+
+    def _notify_cancelled(self) -> None:
+        try:
+            rumps.notification(
+                title="Sabbel",
+                subtitle="Recording cancelled",
+                message="Escape pressed — the dictation was discarded.",
+                sound=False,
+            )
+        except Exception:
+            logging.exception("Failed to send cancellation notification")
 
     def _set_recording(self):
         self._stop_spinner()

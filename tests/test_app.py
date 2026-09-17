@@ -323,6 +323,29 @@ def test_recording_cancel_drops_audio_and_queues_nothing():
     assert app._capturing is False
 
 
+def test_escape_cancel_tells_the_user_why_the_text_vanished():
+    """A silent discard reads as a bug — Escape must say it was deliberate."""
+    app = _wired_app()
+    app._set_idle = MagicMock()
+    with patch("sabbel.app.callAfter", side_effect=lambda fn, *a: fn()), \
+         patch("sabbel.app.rumps.notification") as note:
+        app._on_recording_cancel("escape")
+
+    note.assert_called_once()
+    assert "cancel" in note.call_args.kwargs["subtitle"].lower()
+
+
+def test_combo_cancel_stays_silent():
+    """⌥-typing cancels dozens of times a day — notifying would be noise."""
+    app = _wired_app()
+    app._set_idle = MagicMock()
+    with patch("sabbel.app.callAfter", side_effect=lambda fn, *a: fn()), \
+         patch("sabbel.app.rumps.notification") as note:
+        app._on_recording_cancel("combo")
+
+    note.assert_not_called()
+
+
 # --- model failure is sticky ------------------------------------------------
 
 

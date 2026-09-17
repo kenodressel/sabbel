@@ -11,13 +11,32 @@ from pynput.keyboard import Key, KeyCode
 from sabbel.hotkey import HotkeyManager, _parse_hotkey
 
 
+class FakeClock:
+    """Monotonic clock under test control — hold durations without sleeping."""
+
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        return self.now
+
+    def advance(self, seconds):
+        self.now += seconds
+
+
 @pytest.fixture
-def hk():
+def clock():
+    return FakeClock()
+
+
+@pytest.fixture
+def hk(clock):
     m = HotkeyManager(
         on_start=MagicMock(),
         on_stop=MagicMock(),
         on_cancel=MagicMock(),
         hotkey="alt_r",
+        clock=clock,
     )
     return m
 
@@ -131,3 +150,124 @@ def test_real_pynput_signature_is_accepted(hk):
     hk._on_release(Key.alt_r, False)
     hk._on_start.assert_called_once()
     hk._on_stop.assert_called_once()
+
+
+# --- combo only wins for short holds ----------------------------------------
+#
+# Thresholds come from measured data in /tmp/sabbel-runtime.log: 36 genuine
+# ⌥-combos spanned 0.142s–0.486s, while two lost dictations ran 12.0s and 18.0s.
+
+
+def test_long_hold_transcribes_despite_early_stray_key(hk, clock):
+    """The real bug: a key brushed 66ms in killed a 12-second dictation.
+
+    The stray key lands well inside any press-time window, so only the hold
+    duration can tell typing from dictation.
+    """
+    hk._on_press(Key.alt_r)
+    clock.advance(0.066)
+    hk._on_press(KeyCode.from_char("l"))
+    clock.advance(11.892)
+    hk._on_release(Key.alt_r)
+
+    hk._on_stop.assert_called_once()
+    hk._on_cancel.assert_not_called()
+
+
+def test_longest_measured_combo_is_still_cancelled(hk, clock):
+    """0.486s was the longest real ⌥-combo seen — it must stay discarded."""
+    hk._on_press(Key.alt_r)
+    clock.advance(0.284)
+    hk._on_press(KeyCode.from_char("l"))
+    clock.advance(0.202)
+    hk._on_release(Key.alt_r)
+
+    hk._on_cancel.assert_called_once_with("combo")
+    hk._on_stop.assert_not_called()
+
+
+# --- escape cancels explicitly ----------------------------------------------
+
+
+def test_escape_cancels_a_long_dictation(hk, clock):
+    hk._on_press(Key.alt_r)
+    clock.advance(9.0)
+    hk._on_press(Key.esc)
+
+    hk._on_cancel.assert_called_once_with("escape")
+    hk._on_stop.assert_not_called()
+
+
+def test_escape_then_hotkey_release_does_not_also_stop(hk, clock):
+    """Releasing the still-held hotkey after Escape must not transcribe."""
+    hk._on_press(Key.alt_r)
+    clock.advance(5.0)
+    hk._on_press(Key.esc)
+    hk._on_release(Key.esc)
+    hk._on_release(Key.alt_r)
+
+    hk._on_cancel.assert_called_once_with("escape")
+    hk._on_stop.assert_not_called()
+
+
+def test_escape_outside_recording_is_ignored(hk):
+    hk._on_press(Key.esc)
+
+    hk._on_cancel.assert_not_called()
+    hk._on_stop.assert_not_called()
+
+
+def test_injected_escape_does_not_cancel_dictation(hk, clock):
+    """A synthetic Escape from another tool must not discard live dictation."""
+    hk._on_press(Key.alt_r, False)
+    clock.advance(6.0)
+    hk._on_press(Key.esc, True)
+    clock.advance(2.0)
+    hk._on_release(Key.alt_r, False)
+
+    hk._on_cancel.assert_not_called()
+    hk._on_stop.assert_called_once()
+
+
+def test_recording_restarts_cleanly_after_escape(hk, clock):
+    hk._on_press(Key.alt_r)
+    clock.advance(4.0)
+    hk._on_press(Key.esc)
+    hk._on_release(Key.alt_r)
+
+    clock.advance(1.0)
+    hk._on_press(Key.alt_r)
+    clock.advance(3.0)
+    hk._on_release(Key.alt_r)
+
+    assert hk._on_start.call_count == 2
+    hk._on_stop.assert_called_once()
+    hk._on_cancel.assert_called_once_with("escape")
+
+
+def test_escape_does_not_let_autorepeat_restart_recording():
+    """A held non-modifier hotkey keeps firing press events.
+
+    Escape clears the recording flag while the key is still physically down,
+    so the next auto-repeat would otherwise start a second recording the user
+    never asked for — right after they cancelled the first.
+    """
+    clock = FakeClock()
+    m = HotkeyManager(
+        on_start=MagicMock(),
+        on_stop=MagicMock(),
+        on_cancel=MagicMock(),
+        hotkey="f5",
+        clock=clock,
+    )
+    m._on_press(Key.f5)
+    clock.advance(3.0)
+    m._on_press(Key.esc)
+    clock.advance(0.05)
+    m._on_press(Key.f5)   # auto-repeat, key never released
+    m._on_press(Key.f5)
+
+    m._on_start.assert_called_once()
+
+    m._on_release(Key.f5)
+    m._on_stop.assert_not_called()
