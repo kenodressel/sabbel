@@ -6,11 +6,20 @@ PROJECT_DIR = $(shell pwd)
 INSTALL_APP_DIR = $(HOME)/Applications/Sabbel.app
 LAUNCH_DOMAIN = gui/$(shell id -u)
 LAUNCH_SERVICE = $(LAUNCH_DOMAIN)/$(PLIST_NAME)
+# The interpreter that runs py2app. CI overrides it with the framework Python
+# it installed into .venv; a bundle is only standalone when built from one.
+BUILD_PYTHON ?= uv run --extra build python
 
-.PHONY: run build-app install-app reinstall-app ensure-app-installed autostart autostart-remove stop restart status download-model clean help
+.PHONY: run test test-model build-app install-app reinstall-app ensure-app-installed autostart autostart-remove stop restart status download-model clean help
 
 run: ## Start Sabbel (foreground)
 	uv run sabbel
+
+test: ## Run the unit tests (mocked MLX, ~1s)
+	uv run --extra dev pytest -q
+
+test-model: ## Run the real-model tests on Metal (~2.3GB download on first run)
+	uv run --extra dev pytest -m model -v
 
 icons/Sabbel.icns: icons/sabbel-icon.png ## Generate app icon from sabbel-icon.png
 	@mkdir -p build/Sabbel.iconset
@@ -28,7 +37,7 @@ icons/Sabbel.icns: icons/sabbel-icon.png ## Generate app icon from sabbel-icon.p
 
 build-app: icons/Sabbel.icns ## Build standalone Sabbel.app with py2app
 	@rm -rf build dist
-	uv run --extra build python setup.py py2app
+	$(BUILD_PYTHON) setup.py py2app
 	@# mlx.metallib is a Metal shader archive (not Mach-O), so py2app's
 	@# frameworks option cannot process it.  Copy it manually next to
 	@# libmlx.dylib where MLX expects to find it.
