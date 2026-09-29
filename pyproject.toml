@@ -9,7 +9,8 @@ dependencies = [
     # thread-owned: a model loaded on one thread cannot be evaluated on
     # another. Nothing in this repo used to state which MLX Sabbel supports,
     # so a fresh resolve crossed that boundary on its own and shipped a
-    # release that transcribed nothing. Widen only with a real-model test.
+    # release that transcribed nothing. Widen only once `make test-model`
+    # passes on the new range.
     "mlx>=0.32,<0.33",
     "sounddevice>=0.5.0",
     "numpy>=1.24",
@@ -33,3 +34,10 @@ include = ["sabbel*"]
 [build-system]
 requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+# Real-model tests load 2.3 GB and take a minute; run them with `make test-model`.
+addopts = "-m 'not model'"
+markers = [
+    "model: loads the real Parakeet model on Metal (opt-in: make test-model)",
+]

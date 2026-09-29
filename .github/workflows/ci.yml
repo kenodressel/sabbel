@@ -37,3 +37,16 @@ jobs:
 
       - name: Run tests
         run: .venv/bin/python -m pytest tests/ -v
+
+      - name: Cache the Parakeet model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface/hub
+          key: hf-${{ hashFiles('sabbel/transcriber.py') }}
+          restore-keys: hf-
+
+      - name: Run real-model tests
+        # The mocked suite above cannot see MLX itself: thread-owned streams
+        # (v0.4.x transcribed nothing) and the buffer cache that grew ~0.5 GB
+        # per dictation (v0.5.0) both shipped past it.
+        run: .venv/bin/python -m pytest -m model -v
