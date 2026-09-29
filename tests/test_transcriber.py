@@ -69,6 +69,34 @@ def test_model_is_loaded_once(mock_load):
 
 
 @patch("sabbel.transcriber._load_parakeet")
+def test_buffer_cache_is_released_after_each_take(mock_load):
+    """MLX keeps freed Metal buffers cached, capped only near the GPU working
+    set (~40 GB on a 48 GB Mac). Every take has a new length, so buffers rarely
+    get reused and the idle app grew by ~0.5 GB per dictation."""
+    mx, from_pretrained, get_logmel, model = _fake_parakeet()
+    mock_load.return_value = (mx, from_pretrained, get_logmel)
+    order = MagicMock()
+    order.attach_mock(model.generate, "generate")
+    order.attach_mock(mx.clear_cache, "clear_cache")
+
+    TranscriptionEngine().transcribe(np.random.randn(16000).astype(np.float32))
+
+    assert [c[0] for c in order.mock_calls] == ["generate", "clear_cache"]
+
+
+@patch("sabbel.transcriber._load_parakeet")
+def test_buffer_cache_is_released_when_generate_fails(mock_load):
+    mx, from_pretrained, get_logmel, model = _fake_parakeet()
+    mock_load.return_value = (mx, from_pretrained, get_logmel)
+    model.generate.side_effect = RuntimeError("boom")
+
+    with pytest.raises(RuntimeError, match="boom"):
+        TranscriptionEngine().transcribe(np.random.randn(16000).astype(np.float32))
+
+    mx.clear_cache.assert_called_once()
+
+
+@patch("sabbel.transcriber._load_parakeet")
 def test_rejects_wrong_sample_rate(mock_load):
     """Sabbel records at 16 kHz; a mismatched model would silently mis-transcribe."""
     mx, from_pretrained, get_logmel, _ = _fake_parakeet(sample_rate=22050)

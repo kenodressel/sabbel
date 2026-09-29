@@ -91,8 +91,16 @@ class TranscriptionEngine:
         # mx.view(x, original_dtype), and only a 4-byte dtype halves back to
         # n_fft//2+1 bins. bfloat16 audio produces a filterbank shape mismatch.
         samples = mx.array(np.ascontiguousarray(audio, dtype=np.float32))
-        mel = get_logmel(samples, model.preprocessor_config)
-        return model.generate(mel)[0].text.strip()
+        try:
+            mel = get_logmel(samples, model.preprocessor_config)
+            return model.generate(mel)[0].text.strip()
+        finally:
+            # MLX keeps freed Metal buffers for reuse, capped only near the
+            # GPU working set (~40 GB on a 48 GB Mac). Each take has a new
+            # length, so the buffers rarely fit again and the cache grew by
+            # ~0.5 GB per dictation until the app sat on tens of GB while idle.
+            # Takes are seconds apart at best; reuse buys nothing worth that.
+            mx.clear_cache()
 
     def warmup(self):
         silence = np.zeros(SAMPLE_RATE, dtype=np.float32)
