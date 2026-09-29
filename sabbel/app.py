@@ -336,6 +336,7 @@ class SabbelApp(rumps.App):
         self._capturing = False
         # Sticky: the model never loaded, so no amount of waiting fixes it.
         self._model_failed = False
+        self._model_error = ""
         self._permission_thread: threading.Thread | None = None
 
     def _attach_mic_menu_delegate(self):
@@ -408,7 +409,15 @@ class SabbelApp(rumps.App):
             self._hotkey.start()
             self._hotkey_started = True
             logging.info("Permissions ready; hotkey started")
-            callAfter(lambda: self._set_status("Ready"))
+            callAfter(self._show_readiness)
+
+    def _show_readiness(self):
+        """Status once permissions are in. The model decides the rest: this
+        usually runs within a second of launch, long before a first-run model
+        download finishes — or after it has already failed for good."""
+        if self._model_failed:
+            return
+        self._set_status("Ready" if self._model_ready else "Loading model...")
 
     def _set_status(self, message: str):
         self._status_item.title = f"Status: {message}"
@@ -421,6 +430,7 @@ class SabbelApp(rumps.App):
             # _model_ready stays False, and the app sits at "Loading model..."
             # forever while every hotkey press is logged as "blocked".
             logging.exception("Model warmup failed")
+            self._model_error = str(exc)
             self._model_failed = True
             # Deliberately not _show_error: that auto-clears to "Ready" after
             # two seconds, which would claim the app works while every hotkey
@@ -740,6 +750,10 @@ class SabbelApp(rumps.App):
 
     def _on_recording_start(self):
         """Called from pynput thread."""
+        if self._model_failed:
+            logging.info("Recording blocked: model failed to load")
+            callAfter(lambda m=self._model_error: self._notify_model_failed(m))
+            return
         if not self._model_ready:
             logging.info("Recording blocked: model still loading")
             callAfter(self._notify_model_loading)
@@ -881,8 +895,10 @@ class SabbelApp(rumps.App):
                 continue
 
             logging.info("Transcription succeeded: chars=%s", len(text))
-            self._save_to_history(text)
-            callAfter(lambda t=text, g=target: self._do_inject(t, g))
+            # Pasted here, not on the main thread: waiting out held modifiers
+            # and polling for the paste froze the menu bar for up to 3s.
+            # Staying on the worker also keeps pastes in take order.
+            self._do_inject(text, target)
 
     # Each outcome needs its own wording — telling someone their text is in the
     # clipboard when we deliberately withheld it from a password field is worse
@@ -903,6 +919,7 @@ class SabbelApp(rumps.App):
     }
 
     def _do_inject(self, text: str, target: dict | None = None):
+        """Paste a finished take. Runs on the transcription worker."""
         try:
             outcome = inject_text(
                 text,
@@ -913,8 +930,17 @@ class SabbelApp(rumps.App):
         except Exception:
             # Unguarded PyObjC here would leave the spinner running forever.
             logging.exception("Text injection failed")
-            self._show_error("Paste failed")
+            # The history is the only copy left of a take that never landed.
+            self._save_to_history(text)
+            callAfter(lambda: self._show_error("Paste failed"))
             return
+        # Only once the outcome is known: a dictation refused by a password
+        # field must not end up on disk either.
+        if outcome != injector.REFUSED_SECURE:
+            self._save_to_history(text)
+        callAfter(lambda o=outcome: self._announce_inject(o))
+
+    def _announce_inject(self, outcome: str) -> None:
         notice = self._INJECT_NOTICES.get(outcome)
         if notice is not None:
             subtitle, message = notice
