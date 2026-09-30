@@ -6,17 +6,11 @@ on:
   pull_request:
     branches: [main]
 
-env:
-  # Opt actions/checkout@v4, astral-sh/setup-uv@v4 etc. into Node 24
-  # ahead of the Sept 2026 forced cutover. Drop once all pinned actions
-  # ship a default-Node-24 release.
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   test:
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Python from python.org
         run: |
@@ -25,7 +19,8 @@ jobs:
           echo "/Library/Frameworks/Python.framework/Versions/3.13/bin" >> $GITHUB_PATH
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        # setup-uv publishes no major tags since v8 — pin the exact release.
+        uses: astral-sh/setup-uv@v10.2.0
 
       - name: Install dependencies
         run: |
@@ -39,7 +34,7 @@ jobs:
         run: .venv/bin/python -m pytest tests/ -v
 
       - name: Cache the Parakeet model
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/huggingface/hub
           key: hf-${{ hashFiles('sabbel/transcriber.py') }}
