@@ -130,6 +130,7 @@ def test_on_recording_start_notifies_on_missing_device(monkeypatch):
     """
     app = object.__new__(SabbelApp)
     app._model_ready = True
+    app._model_failed = False
     app._notified_missing_device = None
     recorder = MagicMock()
     recorder.last_missing_device = "Dell WD22 Mic"
@@ -149,6 +150,7 @@ def test_on_recording_start_notifies_on_missing_device(monkeypatch):
 def test_on_recording_start_notifies_missing_device_once_until_available(monkeypatch):
     app = object.__new__(SabbelApp)
     app._model_ready = True
+    app._model_failed = False
     app._notified_missing_device = None
     recorder = MagicMock()
     app._recorder = recorder
@@ -175,6 +177,7 @@ def test_on_recording_start_no_notification_when_device_present(monkeypatch):
     """
     app = object.__new__(SabbelApp)
     app._model_ready = True
+    app._model_failed = False
     app._notified_missing_device = "Dell WD22 Mic"
     recorder = MagicMock()
     recorder.last_missing_device = None

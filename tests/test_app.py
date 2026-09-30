@@ -67,17 +67,53 @@ def test_permission_monitor_starts_hotkey_once_permissions_are_ready(
     _mock_call_after,
     _mock_sleep,
 ):
-    app = SabbelApp.__new__(SabbelApp)
-    app._running = True
-    app._hotkey_started = False
-    app._hotkey = MagicMock()
-    app._set_status = MagicMock()
+    app = _permission_app(model_ready=True)
 
     app._monitor_permissions()
 
     app._hotkey.start.assert_called_once()
     assert app._hotkey_started is True
     app._set_status.assert_called_with("Ready")
+
+
+def _permission_app(model_ready=False, model_failed=False):
+    app = SabbelApp.__new__(SabbelApp)
+    app._running = True
+    app._hotkey_started = False
+    app._hotkey = MagicMock()
+    app._set_status = MagicMock()
+    app._model_ready = model_ready
+    app._model_failed = model_failed
+    return app
+
+
+@patch("sabbel.app.time.sleep")
+@patch("sabbel.app.callAfter", side_effect=lambda fn: fn())
+@patch("sabbel.app.check_microphone", return_value=True)
+@patch("sabbel.app.check_accessibility", return_value=True)
+def test_permissions_do_not_claim_ready_while_the_model_loads(*_mocks):
+    """Permissions are usually granted already, so this fires within a second
+    of launch — while a first-run model download can take minutes."""
+    app = _permission_app(model_ready=False)
+
+    app._monitor_permissions()
+
+    app._set_status.assert_called_with("Loading model...")
+
+
+@patch("sabbel.app.time.sleep")
+@patch("sabbel.app.callAfter", side_effect=lambda fn: fn())
+@patch("sabbel.app.check_microphone", return_value=True)
+@patch("sabbel.app.check_accessibility", return_value=True)
+def test_permissions_do_not_overwrite_a_model_failure(*_mocks):
+    """Offline first launch: the model fails while the user is still in
+    System Settings granting Accessibility. "Ready" must not replace it."""
+    app = _permission_app(model_failed=True)
+
+    app._monitor_permissions()
+
+    for call in app._set_status.call_args_list:
+        assert call.args[0] != "Ready"
 
 
 def test_append_history_creates_file_and_appends(tmp_path):
@@ -363,6 +399,38 @@ def test_warmup_failure_marks_model_failed():
     assert app._model_ready is False
 
 
+def test_hotkey_after_model_failure_names_the_failure():
+    """Each press used to say "Model still loading. Please wait" — for a model
+    that was never going to load."""
+    app = SabbelApp.__new__(SabbelApp)
+    app._model_ready = False
+    app._model_failed = True
+    app._model_error = "network is unreachable"
+    app._recorder = MagicMock()
+    app._notify_model_loading = MagicMock()
+    app._notify_model_failed = MagicMock()
+
+    with patch("sabbel.app.callAfter", side_effect=lambda fn, *a: fn()):
+        app._on_recording_start()
+
+    app._notify_model_loading.assert_not_called()
+    app._notify_model_failed.assert_called_once_with("network is unreachable")
+    app._recorder.start.assert_not_called()
+
+
+def test_warmup_failure_keeps_the_reason():
+    app = SabbelApp.__new__(SabbelApp)
+    app._transcriber = MagicMock()
+    app._transcriber.warmup.side_effect = RuntimeError("no model")
+    app._model_ready = False
+    app._model_failed = False
+
+    with patch("sabbel.app.callAfter", lambda fn, *a: None):
+        app._warmup()
+
+    assert app._model_error == "no model"
+
+
 def test_idle_never_reports_ready_after_model_failure():
     """It used to: _show_error's 2s timer cleared to "Ready" while every
     hotkey press was still being refused."""
@@ -402,7 +470,45 @@ def _inject_app():
     app._config = MagicMock(pre_paste_delay=0, post_paste_delay=0)
     app._set_idle = MagicMock()
     app._show_error = MagicMock()
+    app._save_to_history = MagicMock()
     return app
+
+
+def _run_inject(app, text, target=None):
+    """_do_inject runs on the worker and hands UI work back via callAfter."""
+    with patch("sabbel.app.callAfter", side_effect=lambda fn, *a: fn(*a)):
+        app._do_inject(text, target=target)
+
+
+def test_secure_field_dictation_stays_out_of_history():
+    """Refusing the paste is pointless if the password is in history.log."""
+    from sabbel import injector
+
+    app = _inject_app()
+    with patch("sabbel.app.inject_text", return_value=injector.REFUSED_SECURE), \
+         patch("sabbel.app.rumps.notification"):
+        _run_inject(app, "hunter2", target=None)
+
+    app._save_to_history.assert_not_called()
+
+
+def test_pasted_dictation_is_saved_to_history():
+    from sabbel import injector
+
+    app = _inject_app()
+    with patch("sabbel.app.inject_text", return_value=injector.PASTED):
+        _run_inject(app, "hallo", target=None)
+
+    app._save_to_history.assert_called_once_with("hallo")
+
+
+def test_failed_paste_still_saves_to_history():
+    """History is the only copy left when the paste itself blew up."""
+    app = _inject_app()
+    with patch("sabbel.app.inject_text", side_effect=RuntimeError("pyobjc")):
+        _run_inject(app, "hallo", target=None)
+
+    app._save_to_history.assert_called_once_with("hallo")
 
 
 def test_secure_field_outcome_does_not_claim_the_clipboard():
@@ -412,7 +518,7 @@ def test_secure_field_outcome_does_not_claim_the_clipboard():
     app = _inject_app()
     with patch("sabbel.app.inject_text", return_value=injector.REFUSED_SECURE), \
          patch("sabbel.app.rumps.notification") as note:
-        app._do_inject("hunter2", target=None)
+        _run_inject(app, "hunter2", target=None)
 
     subtitle = note.call_args.kwargs["subtitle"]
     message = note.call_args.kwargs["message"]
@@ -425,7 +531,7 @@ def test_successful_paste_notifies_nothing():
     app = _inject_app()
     with patch("sabbel.app.inject_text", return_value=injector.PASTED), \
          patch("sabbel.app.rumps.notification") as note:
-        app._do_inject("hallo", target=None)
+        _run_inject(app, "hallo", target=None)
 
     note.assert_not_called()
     app._set_idle.assert_called_once()
@@ -437,7 +543,7 @@ def test_inject_passes_the_takes_own_target():
     app = _inject_app()
     target = {"pid": 7, "name": "Notes"}
     with patch("sabbel.app.inject_text", return_value=injector.PASTED) as inject:
-        app._do_inject("hallo", target=target)
+        _run_inject(app, "hallo", target=target)
 
     assert inject.call_args.kwargs["target"] is target
 
@@ -445,7 +551,7 @@ def test_inject_passes_the_takes_own_target():
 def test_inject_exception_does_not_leave_the_spinner_running():
     app = _inject_app()
     with patch("sabbel.app.inject_text", side_effect=RuntimeError("pyobjc blew up")):
-        app._do_inject("hallo", target=None)
+        _run_inject(app, "hallo", target=None)
 
     app._show_error.assert_called_once()
 
@@ -571,20 +677,59 @@ def test_model_is_warmed_up_on_the_transcribing_thread():
     app._model_ready = False
     app._model_failed = False
     app._save_to_history = MagicMock()
+    app._config = MagicMock(pre_paste_delay=0, post_paste_delay=0)
 
     app._takes.put((np.zeros(16000, dtype=np.float32), {"pid": 1, "name": "Notes"}))
     app._takes.put(None)
 
-    with patch("sabbel.app.callAfter", lambda fn, *a: None):
+    with patch("sabbel.app.callAfter", lambda fn, *a: None), \
+         patch("sabbel.app.inject_text", side_effect=_remember("inject", "pasted")):
         worker = threading.Thread(target=app._transcription_worker)
         worker.start()
         worker.join(timeout=5)
 
     assert not worker.is_alive()
+    assert threads.get("inject") == threads["transcribe"], (
+        "paste must run on the worker: on the main thread its modifier wait "
+        "and paste verification froze the menu bar for up to 3s"
+    )
     assert "warmup" in threads, "the worker never warmed the model up itself"
     assert threads["warmup"] == threads["transcribe"], (
         "model loaded on a different thread than it is evaluated on"
     )
+
+
+def test_worker_keeps_secure_dictation_out_of_history():
+    """The worker used to write history before the paste was even attempted,
+    so a dictation refused by a password field was on disk regardless."""
+    import queue as _queue
+
+    import numpy as np
+
+    from sabbel import injector
+
+    app = SabbelApp.__new__(SabbelApp)
+    app._running = True
+    app._takes = _queue.Queue()
+    app._recorder = MagicMock()
+    app._recorder.is_valid_duration.return_value = True
+    app._recorder.is_dead_stream.return_value = False
+    app._recorder.has_speech.return_value = True
+    app._transcriber = MagicMock()
+    app._transcriber.fallback = None
+    app._transcriber.transcribe.return_value = "hunter2"
+    app._model_ready = False
+    app._model_failed = False
+    app._save_to_history = MagicMock()
+    app._config = MagicMock(pre_paste_delay=0, post_paste_delay=0)
+    app._takes.put((np.zeros(16000, dtype=np.float32), None))
+    app._takes.put(None)
+
+    with patch("sabbel.app.callAfter", lambda fn, *a: None), \
+         patch("sabbel.app.inject_text", return_value=injector.REFUSED_SECURE):
+        app._transcription_worker()
+
+    app._save_to_history.assert_not_called()
 
 
 def test_run_does_not_warm_up_on_a_separate_thread():
