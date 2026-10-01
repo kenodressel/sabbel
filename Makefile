@@ -10,7 +10,7 @@ LAUNCH_SERVICE = $(LAUNCH_DOMAIN)/$(PLIST_NAME)
 # it installed into .venv; a bundle is only standalone when built from one.
 BUILD_PYTHON ?= uv run --extra build python
 
-.PHONY: run test test-model build-app install-app reinstall-app ensure-app-installed autostart autostart-remove stop restart status download-model clean help
+.PHONY: run test test-model test-e2e build-app install-app reinstall-app ensure-app-installed autostart autostart-remove stop restart status download-model clean help
 
 run: ## Start Sabbel (foreground)
 	uv run sabbel
@@ -20,6 +20,9 @@ test: ## Run the unit tests (mocked MLX, ~1s)
 
 test-model: ## Run the real-model tests on Metal (~2.3GB download on first run)
 	uv run --extra dev pytest -m model -v
+
+test-e2e: ## End-to-end on this Mac: real app, model and paste into TextEdit (RUNS=3)
+	uv run --extra dev python scripts/e2e.py
 
 icons/Sabbel.icns: icons/sabbel-icon.png ## Generate app icon from sabbel-icon.png
 	@mkdir -p build/Sabbel.iconset
