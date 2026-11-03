@@ -118,6 +118,9 @@ public final class MicCapture: AudioSource, @unchecked Sendable {
             case .endTake:
                 log("Audio engine configuration changed (device lost or switched) — capture stopped")
                 DispatchQueue.main.async { [weak self] in self?.stopIfCurrent(session) }
+            case .gaveUp:
+                log("Audio configuration changed again before the first buffer after \(TapSession.maxRestarts) restarts — capture stopped")
+                DispatchQueue.main.async { [weak self] in self?.stopIfCurrent(session) }
             }
         }
 
@@ -246,7 +249,13 @@ public final class MicCapture: AudioSource, @unchecked Sendable {
 
 /// One take's tap: converts each buffer to 16 kHz mono and hands it over until ended.
 final class TapSession: @unchecked Sendable {
-    enum ConfigurationChange: Equatable { case restart, endTake }
+    /// `gaveUp`: the change came before the first buffer, but capture already
+    /// restarted `maxRestarts` times this take, so it ends instead.
+    enum ConfigurationChange: Equatable { case restart, endTake, gaveUp }
+
+    /// Restarts before the first buffer, per take. A device that keeps
+    /// reconfiguring without ever delivering audio must not loop forever.
+    static let maxRestarts = 3
 
     static let outFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: MicCapture.sampleRate,
                                          channels: 1, interleaved: false)!
@@ -256,6 +265,7 @@ final class TapSession: @unchecked Sendable {
     private let lock = NSLock()
     private var active = true
     private var sawBuffer = false
+    private var restarts = 0
     private var inputFormat: AVAudioFormat
     /// Keeps resampler state between buffers; used only from the tap's thread.
     private var converter: AVAudioConverter
@@ -280,13 +290,17 @@ final class TapSession: @unchecked Sendable {
     func end() { lock.withLock { active = false } }
 
     /// Decides what a configuration change means for this take. Before the
-    /// first buffer nothing was lost, so capture restarts; after it, the take's
-    /// sample flow ends here and is never resumed on another device mid-take.
+    /// first buffer nothing was lost, so capture restarts, up to `maxRestarts`
+    /// times; after it, the take's sample flow ends here and is never resumed
+    /// on another device mid-take.
     func configurationChanged() -> ConfigurationChange {
         lock.withLock {
-            guard sawBuffer else { return .restart }
+            if !sawBuffer && restarts < Self.maxRestarts {
+                restarts += 1
+                return .restart
+            }
             active = false
-            return .endTake
+            return sawBuffer ? .endTake : .gaveUp
         }
     }
 

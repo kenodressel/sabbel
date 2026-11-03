@@ -97,6 +97,17 @@ import Testing
         #expect(abs(collected.count - 16_000) <= 400)
     }
 
+    /// A device that keeps reconfiguring before it delivers anything must not
+    /// restart capture forever: three restarts per take, then the take ends.
+    @Test func restartsBeforeTheFirstBufferAreCappedAtThree() throws {
+        let input = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1)!
+        let session = try TapSession(inputFormat: input) { _ in }
+        for _ in 0..<3 { #expect(session.configurationChanged() == .restart) }
+        #expect(session.isActive)
+        #expect(session.configurationChanged() == .gaveUp)
+        #expect(!session.isActive)
+    }
+
     @Test func configurationChangeAfterTheFirstBufferEndsTheTake() throws {
         let input = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1)!
         let collected = Collected()
