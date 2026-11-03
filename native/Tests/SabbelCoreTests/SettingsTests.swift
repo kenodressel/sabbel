@@ -56,6 +56,15 @@ private func load(toml: String? = nil, prefs: String? = nil) -> (SabbelSettings,
         #expect(log.isEmpty)
     }
 
+    @Test func overlayStyleDefaultsToMinimal() {
+        #expect(SabbelSettings().overlayStyle == .minimal)
+        for (raw, style) in [("text", OverlayStyle.text), ("off", .off), ("minimal", .minimal), (" Text ", .text)] {
+            let (s, log) = load(toml: "[overlay]\nstyle = \"\(raw)\"")
+            #expect(s.overlayStyle == style)
+            #expect(log.isEmpty)
+        }
+    }
+
     @Test func minDurationAtTheFloorIsAccepted() {
         let (s, log) = load(toml: "[audio]\nmin_duration_seconds = 0.3")
         #expect(s.minDuration == 0.3)
@@ -79,6 +88,9 @@ private func load(toml: String? = nil, prefs: String? = nil) -> (SabbelSettings,
         ("[text]\ntidy = 1", "tidy"),
         ("[text]\napp_rules = \"no\"", "app_rules"),
         ("[text]\nvoice_commands = 1", "voice_commands"),
+        ("[overlay]\nstyle = \"fancy\"", "style"),
+        ("[overlay]\nstyle = true", "style"),
+        ("[overlay]\nstyle = \"\"", "style"),
     ])
     func invalidValueFallsBackAndKeepsOthers(toml: String, key: String) {
         let extra = key == "hotkey" ? "" : "[general]\nhotkey = \"f5\"\n"

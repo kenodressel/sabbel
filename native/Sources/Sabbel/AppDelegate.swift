@@ -51,7 +51,7 @@ import SabbelSystem
              + "audio_device=\(settings.audioDevice ?? "System Default") "
              + "history_recent=\(settings.recentLimit) "
              + "text_tidy=\(settings.tidyText) text_app_rules=\(settings.appRules) "
-             + "text_voice_commands=\(settings.voiceCommands)")
+             + "text_voice_commands=\(settings.voiceCommands) overlay_style=\(settings.overlayStyle.rawValue)")
 
         let notifier = Notifier(log: info)
         notifier.requestAuthorization()
@@ -59,7 +59,8 @@ import SabbelSystem
             : UpdateChecker(version: version, throttle: UpdateThrottle(stateURL: paths.updateCheckJSON), log: info)
         let menuBar = MenuBar(version: version, paths: paths, historyEnabled: settings.historyEnabled,
                               historyMaxBytes: settings.historyMaxBytes,
-                              recentLimit: settings.recentLimit, notifier: notifier, updates: updates, log: info)
+                              recentLimit: settings.recentLimit, notifier: notifier, updates: updates,
+                              overlayStyle: settings.overlayStyle, log: info)
         let slot = recognizer
         let coordinator = TakeCoordinator(
             settings: settings, paths: paths, audio: MicCapture(log: info), focus: SystemFocusProbe(),

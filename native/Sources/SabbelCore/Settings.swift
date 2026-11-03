@@ -52,6 +52,8 @@ public struct SabbelSettings: Equatable, Sendable {
     public var appRules = true
     /// Spoken formatting ("neue Zeile") and the send command ("press enter").
     public var voiceCommands = true
+    /// The floating recording overlay shown during a take.
+    public var overlayStyle: OverlayStyle = .minimal
 
     public init() {}
 
@@ -59,6 +61,7 @@ public struct SabbelSettings: Equatable, Sendable {
         "general": ["hotkey"], "audio": ["min_duration_seconds"],
         "history": ["enabled", "max_bytes", "recent"],
         "text": ["tidy", "app_rules", "voice_commands"],
+        "overlay": ["style"],
     ]
     private static let obsolete: [String: Set<String>] = [
         "model": ["repo"], "injection": ["pre_paste_delay", "post_paste_delay"],
@@ -135,6 +138,15 @@ public struct SabbelSettings: Equatable, Sendable {
         if let raw = doc["text"]?["voice_commands"] {
             if case .bool(let b) = raw { voiceCommands = b }
             else { reject("text", "voice_commands", raw, "expected true or false", voiceCommands) }
+        }
+        if let raw = doc["overlay"]?["style"] {
+            if case .string(let v) = raw,
+               let style = OverlayStyle(rawValue: v.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) {
+                overlayStyle = style
+            } else {
+                let names = OverlayStyle.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
+                reject("overlay", "style", raw, "expected one of \(names)", overlayStyle.rawValue)
+            }
         }
     }
 

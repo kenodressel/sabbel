@@ -136,7 +136,7 @@ import SabbelSystem
         paste = RecordingPasteEnvironment(base: base)
         let menuBar = MenuBar(version: AppDelegate.version, paths: paths, historyEnabled: settings.historyEnabled,
                               historyMaxBytes: settings.historyMaxBytes, notifier: Notifier(log: tee, notificationCenter: false),
-                              updates: nil, log: tee)
+                              updates: nil, overlayStyle: settings.overlayStyle, log: tee)
         let ui = RecordingUI(menuBar: menuBar)
         let slot = recognizer
         let coordinator = TakeCoordinator(
@@ -486,4 +486,8 @@ import SabbelSystem
     func notify(_ notice: Notice) { notices.append(notice) }
 
     func live(_ text: LiveText, masked: Bool) { menuBar.live(text, masked: masked) }
+
+    func level(_ level: Double) { menuBar.level(level) }
+
+    func take(_ event: TakeEvent) { menuBar.take(event) }
 }
