@@ -107,7 +107,7 @@ import SabbelSystem
                     // Trusted, yet the tap could not be created: try again next second.
                     if lastStatus != "Hotkey unavailable" { log.error("Could not create the hotkey event tap") }
                     lastStatus = "Hotkey unavailable"
-                    coordinator?.showStatus("Accessibility missing")
+                    coordinator?.showStatus("Hotkey unavailable")
                 }
                 try? await Task.sleep(for: .seconds(1))
             }

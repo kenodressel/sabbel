@@ -31,13 +31,20 @@ struct LiveTextView: View {
     }
 }
 
+/// Structurally unable to take focus: whatever is clicked, it never becomes
+/// the key or main window, so keystrokes keep going to the app being dictated into.
+final class NonKeyPanel: NSPanel {
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
+}
+
 /// A window that shows the take as it is transcribed, without ever taking focus.
 ///
 /// It is non-activating and never made key: the dictation must keep landing in
 /// the app the user is typing into. Opened only from "Show Live Text", never by a take.
 @MainActor final class LivePanel {
     private let model = LiveModel()
-    private var panel: NSPanel?
+    private var panel: NonKeyPanel?
 
     /// Updates the text whether or not the panel is open, so opening it shows the current take.
     func update(_ text: LiveText, masked: Bool) {
@@ -52,8 +59,8 @@ struct LiveTextView: View {
         panel.orderFrontRegardless()
     }
 
-    private func makePanel() -> NSPanel {
-        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 440, height: 200),
+    private func makePanel() -> NonKeyPanel {
+        let panel = NonKeyPanel(contentRect: NSRect(x: 0, y: 0, width: 440, height: 200),
                             styleMask: [.titled, .closable, .resizable, .nonactivatingPanel],
                             backing: .buffered, defer: true)
         panel.title = "Sabbel — Live Text"

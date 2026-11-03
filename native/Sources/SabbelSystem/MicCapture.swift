@@ -1,7 +1,6 @@
 @preconcurrency import AVFoundation
 import CoreAudio
 import Foundation
-import os
 import SabbelCore
 
 /// Which input device a take records from.
@@ -98,30 +97,28 @@ public final class MicCapture: AudioSource, @unchecked Sendable {
         }
         let inFormat = input.outputFormat(forBus: 0)
         guard inFormat.sampleRate > 0, inFormat.channelCount > 0 else { throw MicError.noInputDevice }
-        guard let outFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: Self.sampleRate,
-                                            channels: 1, interleaved: false),
-              let converter = AVAudioConverter(from: inFormat, to: outFormat) else {
-            throw MicError.unsupportedFormat("\(inFormat)")
-        }
-        // Mix every channel into the mono stream instead of keeping only the first.
-        converter.downmix = true
+        let session = try TapSession(inputFormat: inFormat, onSamples: onSamples)
+        Self.installTap(on: input, format: inFormat, session: session)
 
-        let session = TapSession(converter: converter, outFormat: outFormat, onSamples: onSamples)
-        // The tap only converts and hands over: no locks shared with stop(), no
-        // Task per buffer. The coordinator owns the serial consumer.
-        input.installTap(onBus: 0, bufferSize: 4096, format: inFormat) { buffer, _ in
-            session.deliver(buffer)
-        }
-
-        // A configuration change (device unplugged, default switched, sample
-        // rate changed) stops the engine underneath us. The take's sample flow
-        // ends there; it never crashes or resumes on another device mid-take.
+        // A configuration change (device unplugged, default switched, a headset
+        // switching profile) stops the engine underneath us.
+        //
+        // The handler runs on the engine's internal dispatch queue, where the
+        // engine must not be torn down or released (AVAudioEngine.h: it can
+        // deadlock). So it only decides and ends the sample flow; teardown and
+        // restart hop to the main queue, where the coordinator calls start/stop,
+        // and the engine's last reference is never dropped on that queue.
         let log = self.log
         let observer = NotificationCenter.default.addObserver(
             forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil) { [weak self] _ in
-            log("Audio engine configuration changed (device lost or switched) — capture stopped")
-            session.end()
-            self?.stopIfCurrent(session)
+            switch session.configurationChanged() {
+            case .restart:
+                log("Audio configuration changed before the first buffer — restarting capture")
+                DispatchQueue.main.async { [weak self] in self?.restartIfCurrent(session) }
+            case .endTake:
+                log("Audio engine configuration changed (device lost or switched) — capture stopped")
+                DispatchQueue.main.async { [weak self] in self?.stopIfCurrent(session) }
+            }
         }
 
         engine.prepare()
@@ -138,11 +135,44 @@ public final class MicCapture: AudioSource, @unchecked Sendable {
         lock.unlock()
     }
 
-    private func stopIfCurrent(_ session: TapSession) {
+    /// The tap only converts and hands over: no locks shared with stop(), no
+    /// Task per buffer. The coordinator owns the serial consumer.
+    private static func installTap(on input: AVAudioInputNode, format: AVAudioFormat, session: TapSession) {
+        input.installTap(onBus: 0, bufferSize: 4096, format: format) { buffer, _ in
+            session.deliver(buffer)
+        }
+    }
+
+    private func current(_ session: TapSession) -> Running? {
         lock.lock()
-        let isCurrent = running?.session === session
-        lock.unlock()
-        if isCurrent { stop() }
+        defer { lock.unlock() }
+        return running?.session === session ? running : nil
+    }
+
+    /// Main queue only (see the observer in `open`).
+    private func stopIfCurrent(_ session: TapSession) {
+        if current(session) != nil { stop() }
+    }
+
+    /// A change before any audio arrived (e.g. AirPods switching to their
+    /// headset profile right after start) must not cost the take: re-tap the
+    /// input in its new format and start the engine again. Main queue only.
+    private func restartIfCurrent(_ session: TapSession) {
+        guard let take = current(session) else { return }
+        let input = take.engine.inputNode
+        input.removeTap(onBus: 0)
+        let format = input.outputFormat(forBus: 0)
+        do {
+            guard format.sampleRate > 0, format.channelCount > 0 else { throw MicError.noInputDevice }
+            try session.adopt(inputFormat: format)
+            Self.installTap(on: input, format: format, session: session)
+            take.engine.prepare()
+            try take.engine.start()
+            log("Capture restarted (\(Int(format.sampleRate)) Hz, \(format.channelCount) ch)")
+        } catch {
+            log("Could not restart capture after the configuration change (\(error)) — capture stopped")
+            stop()
+        }
     }
 
     // MARK: devices
@@ -215,24 +245,70 @@ public final class MicCapture: AudioSource, @unchecked Sendable {
 }
 
 /// One take's tap: converts each buffer to 16 kHz mono and hands it over until ended.
-private final class TapSession: @unchecked Sendable {
-    private let converter: AVAudioConverter
-    private let outFormat: AVAudioFormat
-    private let onSamples: @Sendable ([Float]) -> Void
-    private let active = OSAllocatedUnfairLock(initialState: true)
+final class TapSession: @unchecked Sendable {
+    enum ConfigurationChange: Equatable { case restart, endTake }
 
-    init(converter: AVAudioConverter, outFormat: AVAudioFormat, onSamples: @escaping @Sendable ([Float]) -> Void) {
-        self.converter = converter
-        self.outFormat = outFormat
+    static let outFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: MicCapture.sampleRate,
+                                         channels: 1, interleaved: false)!
+
+    private let onSamples: @Sendable ([Float]) -> Void
+    /// Guards the fields below. Held only briefly, never across engine calls.
+    private let lock = NSLock()
+    private var active = true
+    private var sawBuffer = false
+    private var inputFormat: AVAudioFormat
+    /// Keeps resampler state between buffers; used only from the tap's thread.
+    private var converter: AVAudioConverter
+
+    init(inputFormat: AVAudioFormat, onSamples: @escaping @Sendable ([Float]) -> Void) throws {
+        self.inputFormat = inputFormat
+        self.converter = try Self.makeConverter(from: inputFormat)
         self.onSamples = onSamples
     }
 
-    func end() { active.withLock { $0 = false } }
+    private static func makeConverter(from format: AVAudioFormat) throws -> AVAudioConverter {
+        guard let converter = AVAudioConverter(from: format, to: outFormat) else {
+            throw MicCapture.MicError.unsupportedFormat("\(format)")
+        }
+        // Mix every channel into the mono stream instead of keeping only the first.
+        converter.downmix = true
+        return converter
+    }
 
-    /// Runs on the tap's thread only, so the converter (which keeps resampler
-    /// state between buffers) is never used concurrently.
+    var isActive: Bool { lock.withLock { active } }
+
+    func end() { lock.withLock { active = false } }
+
+    /// Decides what a configuration change means for this take. Before the
+    /// first buffer nothing was lost, so capture restarts; after it, the take's
+    /// sample flow ends here and is never resumed on another device mid-take.
+    func configurationChanged() -> ConfigurationChange {
+        lock.withLock {
+            guard sawBuffer else { return .restart }
+            active = false
+            return .endTake
+        }
+    }
+
+    /// Converts from a new input format from now on. Call only while the tap is removed.
+    func adopt(inputFormat format: AVAudioFormat) throws {
+        guard lock.withLock({ format != inputFormat }) else { return }
+        let replacement = try Self.makeConverter(from: format)
+        lock.withLock {
+            inputFormat = format
+            converter = replacement
+        }
+    }
+
     func deliver(_ buffer: AVAudioPCMBuffer) {
-        guard active.withLock({ $0 }), buffer.frameLength > 0 else { return }
+        guard buffer.frameLength > 0 else { return }
+        let converter: AVAudioConverter? = lock.withLock {
+            guard active else { return nil }
+            sawBuffer = true
+            return self.converter
+        }
+        guard let converter else { return }
+        let outFormat = Self.outFormat
         let ratio = outFormat.sampleRate / buffer.format.sampleRate
         let capacity = AVAudioFrameCount((Double(buffer.frameLength) * ratio).rounded(.up)) + 32
         guard let out = AVAudioPCMBuffer(pcmFormat: outFormat, frameCapacity: capacity) else { return }

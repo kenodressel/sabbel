@@ -23,12 +23,15 @@ private struct Offline: Error {}
 
 private func release(_ tag: String) -> Data { Data(#"{"tag_name": "\#(tag)"}"#.utf8) }
 
-@Suite struct UpdateCheckerTests {
+/// A class suite: each test gets a fresh instance, and `deinit` removes its temp dir.
+@Suite final class UpdateCheckerTests {
     let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sabbel-update-\(UUID())")
+
+    deinit { try? FileManager.default.removeItem(at: dir) }
 
     private func throttle() -> UpdateThrottle {
-        UpdateThrottle(stateURL: FileManager.default.temporaryDirectory
-            .appendingPathComponent("sabbel-update-\(UUID())/update-check.json"))
+        UpdateThrottle(stateURL: dir.appendingPathComponent("update-check.json"))
     }
 
     private func checker(version: String, _ throttle: UpdateThrottle, _ fake: FakeFetch) -> UpdateChecker {
@@ -81,6 +84,14 @@ private func release(_ tag: String) -> Data { Data(#"{"tag_name": "\#(tag)"}"#.u
         #expect(await checker(version: "1.0.0", t, fake).check() == nil)
         #expect(fake.calls.count == 1)
         #expect(!t.isDue(now: now))
+    }
+
+    @Test func unparseableBodyDoesNotRecord() async {
+        let fake = FakeFetch(.success(Data(#"{"message": "Not Found"}"#.utf8)))
+        let t = throttle()
+        #expect(await checker(version: "1.0.0", t, fake).check() == nil)
+        #expect(fake.calls.count == 1)
+        #expect(t.isDue(now: now))
     }
 
     @Test func fetchErrorDoesNotRecord() async {

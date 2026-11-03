@@ -40,8 +40,8 @@ public final class UpdateChecker: Sendable {
     ///
     /// - `dev` builds never check.
     /// - Unless `force` (the menu's "Check for updates"), only when the throttle says it is due.
-    /// - The check is recorded only after a successful fetch, so an offline
-    ///   launch tries again next time instead of waiting a day.
+    /// - The check is recorded only once a fetch returned a tag, so an offline
+    ///   launch (or a garbled answer) tries again next time instead of waiting a day.
     public func check(force: Bool = false) async -> String? {
         guard version != "dev" else { return nil }
         let started = now()
@@ -53,8 +53,11 @@ public final class UpdateChecker: Sendable {
             log("Update check failed: \(error)")
             return nil
         }
+        guard let latest = latestTag(fromReleaseJSON: data) else {
+            log("Update check: no tag in the response")
+            return nil
+        }
         throttle.record(now: started)
-        guard let latest = latestTag(fromReleaseJSON: data) else { return nil }
         guard isNewer(latest, than: version) else { return nil }
         log("Update available: v\(latest) (current: v\(version))")
         return latest

@@ -1,3 +1,5 @@
+import AVFoundation
+import Foundation
 import Testing
 @testable import SabbelSystem
 
@@ -56,4 +58,66 @@ import Testing
         #expect(entries.first == .offline("Saved: dell wd22 mic (offline)"))
         #expect(entries.contains(.device(name: "Dell WD22 Mic", label: "Dell WD22 Mic", checked: false)))
     }
+
+    // MARK: tap session
+
+    /// A 440 Hz tone, so the resampler has real signal to work on.
+    private func tone(_ format: AVAudioFormat, frames: AVAudioFrameCount) -> AVAudioPCMBuffer {
+        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames)!
+        buffer.frameLength = frames
+        for ch in 0..<Int(format.channelCount) {
+            for i in 0..<Int(frames) {
+                buffer.floatChannelData![ch][i] = 0.1 * sin(2 * .pi * 440 * Float(i) / Float(format.sampleRate))
+            }
+        }
+        return buffer
+    }
+
+    @Test func convertsToSixteenKilohertzMono() throws {
+        let input = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 2)!
+        let collected = Collected()
+        let session = try TapSession(inputFormat: input) { collected.add($0) }
+        for _ in 0..<10 { session.deliver(tone(input, frames: 4_800)) }  // 1 s of audio
+        // The resampler holds back its filter latency (~14 ms), never more.
+        #expect(abs(collected.count - 16_000) <= 400)
+        #expect(collected.peak > 0.01)
+    }
+
+    @Test func configurationChangeBeforeTheFirstBufferRestarts() throws {
+        let input = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1)!
+        let collected = Collected()
+        let session = try TapSession(inputFormat: input) { collected.add($0) }
+        #expect(session.configurationChanged() == .restart)
+        #expect(session.isActive)
+
+        // The headset profile switch: the input comes back in another format.
+        let switched = AVAudioFormat(standardFormatWithSampleRate: 24_000, channels: 1)!
+        try session.adopt(inputFormat: switched)
+        for _ in 0..<10 { session.deliver(tone(switched, frames: 2_400)) }  // 1 s at 24 kHz
+        #expect(abs(collected.count - 16_000) <= 400)
+    }
+
+    @Test func configurationChangeAfterTheFirstBufferEndsTheTake() throws {
+        let input = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1)!
+        let collected = Collected()
+        let session = try TapSession(inputFormat: input) { collected.add($0) }
+        session.deliver(tone(input, frames: 4_800))
+        let before = collected.count
+        #expect(before > 0)
+
+        #expect(session.configurationChanged() == .endTake)
+        #expect(!session.isActive)
+        session.deliver(tone(input, frames: 4_800))
+        #expect(collected.count == before)
+    }
+}
+
+/// Thread-safe sink for `onSamples`.
+private final class Collected: @unchecked Sendable {
+    private let lock = NSLock()
+    private var samples: [Float] = []
+
+    func add(_ s: [Float]) { lock.withLock { samples += s } }
+    var count: Int { lock.withLock { samples.count } }
+    var peak: Float { lock.withLock { samples.map(abs).max() ?? 0 } }
 }
