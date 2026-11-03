@@ -43,6 +43,8 @@ public struct SabbelSettings: Equatable, Sendable {
     public static let minDurationFloor: TimeInterval = 0.3
     public var historyEnabled = false
     public var historyMaxBytes = 1_000_000
+    /// How many recent dictations the menu keeps in memory; 0 turns the feature off.
+    public var recentLimit = 10
     public var audioDevice: String? = nil
     /// Remove fillers ("ähm", "uh") and accidental repeats before pasting.
     public var tidyText = true
@@ -53,7 +55,7 @@ public struct SabbelSettings: Equatable, Sendable {
 
     private static let known: [String: Set<String>] = [
         "general": ["hotkey"], "audio": ["min_duration_seconds"],
-        "history": ["enabled", "max_bytes"],
+        "history": ["enabled", "max_bytes", "recent"],
         "text": ["tidy", "app_rules"],
     ]
     private static let obsolete: [String: Set<String>] = [
@@ -115,6 +117,10 @@ public struct SabbelSettings: Equatable, Sendable {
         if let raw = doc["history"]?["max_bytes"] {
             if case .integer(let i) = raw, i > 0 { historyMaxBytes = i }
             else { reject("history", "max_bytes", raw, "expected a whole number > 0", historyMaxBytes) }
+        }
+        if let raw = doc["history"]?["recent"] {
+            if case .integer(let i) = raw, (0...50).contains(i) { recentLimit = i }
+            else { reject("history", "recent", raw, "expected a whole number from 0 to 50", recentLimit) }
         }
         if let raw = doc["text"]?["tidy"] {
             if case .bool(let b) = raw { tidyText = b }

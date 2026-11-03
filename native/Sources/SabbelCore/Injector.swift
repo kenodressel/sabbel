@@ -179,6 +179,12 @@ public struct Injector: Sendable {
 
     // MARK: main entry point
 
+    /// Puts `text` on the clipboard as an ordinary copy (not the transient kind
+    /// a paste uses), so clipboard managers keep it.
+    public func copy(_ text: String) {
+        env.restoreClipboard(ClipboardSnapshot(items: [[PasteboardFlavor("public.utf8-plain-text", Data(text.utf8))]]))
+    }
+
     /// Paste text into the focused app via the clipboard and a synthetic Cmd+V.
     ///
     /// If a text input is detected (or detection is inconclusive), pastes and

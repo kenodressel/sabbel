@@ -41,6 +41,14 @@ private func load(toml: String? = nil, prefs: String? = nil) -> (SabbelSettings,
         #expect(log.isEmpty)
     }
 
+    @Test func recentLimitDefaultsToTenAndAcceptsZeroToFifty() {
+        #expect(SabbelSettings().recentLimit == 10)
+        for (value, expected) in [(0, 0), (50, 50), (7, 7)] {
+            let (s, log) = load(toml: "[history]\nrecent = \(value)")
+            #expect(s.recentLimit == expected && log.isEmpty)
+        }
+    }
+
     @Test func textSwitchesDefaultOnAndCanBeTurnedOff() {
         #expect(SabbelSettings().tidyText && SabbelSettings().appRules)
         let (s, log) = load(toml: "[text]\ntidy = false\napp_rules = false")
@@ -65,6 +73,9 @@ private func load(toml: String? = nil, prefs: String? = nil) -> (SabbelSettings,
         ("[history]\nmax_bytes = -1", "max_bytes"),
         ("[history]\nmax_bytes = 1.5", "max_bytes"),
         ("[history]\nenabled = \"yes\"", "enabled"),
+        ("[history]\nrecent = 51", "recent"),
+        ("[history]\nrecent = -1", "recent"),
+        ("[history]\nrecent = 2.5", "recent"),
         ("[text]\ntidy = 1", "tidy"),
         ("[text]\napp_rules = \"no\"", "app_rules"),
     ])

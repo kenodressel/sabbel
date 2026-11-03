@@ -14,6 +14,7 @@ import SabbelSystem
     private let version: String
     private let paths: SabbelPaths
     private let historyMaxBytes: Int
+    private let recentLimit: Int
     private let notifier: Notifier
     private let updates: UpdateChecker?
     private let log: @Sendable (String) -> Void
@@ -23,6 +24,8 @@ import SabbelSystem
     private let statusLine = NSMenuItem(title: "Status: Starting", action: nil, keyEquivalent: "")
     private let historyToggle = NSMenuItem(title: "Save history", action: nil, keyEquivalent: "")
     private let micMenu = NSMenu(title: "Microphone")
+    private let recentMenu = NSMenu(title: "Recent")
+    private let recentItem = NSMenuItem(title: "Recent", action: nil, keyEquivalent: "")
     private var updateItem: NSMenuItem?
     private var latestVersion: String?
 
@@ -30,11 +33,12 @@ import SabbelSystem
     private var spinner: Timer?
     private var spinnerIndex = 0
 
-    init(version: String, paths: SabbelPaths, historyEnabled: Bool, historyMaxBytes: Int,
+    init(version: String, paths: SabbelPaths, historyEnabled: Bool, historyMaxBytes: Int, recentLimit: Int = 10,
          notifier: Notifier, updates: UpdateChecker?, log: @escaping @Sendable (String) -> Void) {
         self.version = version
         self.paths = paths
         self.historyMaxBytes = historyMaxBytes
+        self.recentLimit = recentLimit
         self.notifier = notifier
         self.updates = updates
         self.log = log
@@ -65,6 +69,13 @@ import SabbelSystem
         let historyItem = NSMenuItem(title: "History", action: nil, keyEquivalent: "")
         historyItem.submenu = history
         menu.addItem(historyItem)
+
+        // Rebuilt every time it opens. Hidden when `[history] recent` is 0.
+        recentMenu.delegate = self
+        recentMenu.autoenablesItems = false
+        recentItem.submenu = recentMenu
+        recentItem.isHidden = recentLimit == 0
+        menu.addItem(recentItem)
 
         // Rebuilt every time it opens, so hot-plugged mics show up.
         micMenu.delegate = self
@@ -190,8 +201,63 @@ import SabbelSystem
     // MARK: microphone
 
     func menuWillOpen(_ menu: NSMenu) {
-        guard menu === micMenu else { return }
-        rebuildMicMenu()
+        if menu === recentMenu { rebuildRecentMenu() }
+        if menu === micMenu { rebuildMicMenu() }
+    }
+
+    // MARK: recent dictations
+
+    private func rebuildRecentMenu() {
+        recentMenu.removeAllItems()
+        guard let coordinator else { return }
+        let entries = coordinator.recent.entries
+
+        let paste = item("Paste Last Dictation", #selector(pasteLast))
+        paste.isEnabled = !entries.isEmpty
+        recentMenu.addItem(paste)
+        let again = item("Transcribe Last Recording Again", #selector(retranscribeLast))
+        again.isEnabled = coordinator.canRetranscribe
+        recentMenu.addItem(again)
+        recentMenu.addItem(.separator())
+
+        if entries.isEmpty {
+            let empty = NSMenuItem(title: "No dictations yet", action: nil, keyEquivalent: "")
+            empty.isEnabled = false
+            recentMenu.addItem(empty)
+        }
+        for entry in entries {
+            let row = item(entry.title(), #selector(copyRecent(_:)))
+            row.representedObject = entry.id
+            row.toolTip = entry.subtitle()
+            row.attributedTitle = Self.attributed(entry)
+            recentMenu.addItem(row)
+        }
+        recentMenu.addItem(.separator())
+        let clear = item("Clear Recent", #selector(clearRecent))
+        clear.isEnabled = !entries.isEmpty || coordinator.canRetranscribe
+        recentMenu.addItem(clear)
+    }
+
+    /// The text, then the app and time in a smaller, grey suffix.
+    private static func attributed(_ entry: RecentDictation) -> NSAttributedString {
+        let result = NSMutableAttributedString(string: entry.title())
+        result.append(NSAttributedString(string: "  \(entry.subtitle())", attributes: [
+            .foregroundColor: NSColor.secondaryLabelColor,
+            .font: NSFont.menuFont(ofSize: NSFont.smallSystemFontSize),
+        ]))
+        return result
+    }
+
+    @objc private func pasteLast() { coordinator?.pasteLastDictation() }
+
+    @objc private func retranscribeLast() { coordinator?.retranscribeLast() }
+
+    @objc private func clearRecent() { coordinator?.clearRecent() }
+
+    /// A normal (non-transient) copy, like "Copy diagnostics".
+    @objc private func copyRecent(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? RecentDictation.ID else { return }
+        coordinator?.copyRecent(id: id)
     }
 
     private func rebuildMicMenu() {

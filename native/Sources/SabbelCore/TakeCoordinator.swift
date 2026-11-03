@@ -47,6 +47,8 @@ public final class TakeCoordinator {
         let live: Task<Void, Never>
         let target: FocusTarget?
         let secure: Bool
+        /// The take's audio, kept for "Transcribe Last Recording Again"; nil when nothing is kept.
+        let audio: TakeAudio?
         /// When the hotkey went down, on `now`'s clock.
         let pressed: TimeInterval
     }
@@ -59,6 +61,10 @@ public final class TakeCoordinator {
     private let now: @Sendable () -> TimeInterval
     private let log: (@Sendable (String) -> Void)?
     private let jobs: AsyncStream<PasteJob>.Continuation
+    private let line: PasteLine
+    private let injector: Injector
+    private let date: @Sendable () -> Date
+    private let audioCapacity: Int
 
     /// The app sets it as loading progresses.
     public var modelState: ModelState = .loading(progress: nil) {
@@ -97,6 +103,13 @@ public final class TakeCoordinator {
     private var errorClear: Task<Void, Never>?
     private var notifiedMissingDevice: String?
 
+    /// The last delivered dictations, newest first. Memory only.
+    public private(set) var recent: RecentDictations
+    /// The audio of the last released take, and the app it started in. Never
+    /// kept for a take that started in a secure field.
+    private var lastAudio: TakeAudio?
+    private var lastTarget: FocusTarget?
+
     /// - Parameters:
     ///   - pipeline: rewrites the final text before it is pasted and saved.
     ///   - errorClearDelay: how long an error stays in the menu bar before it
@@ -107,7 +120,9 @@ public final class TakeCoordinator {
                 injector: Injector, makeTranscriber: @escaping @Sendable () -> StreamingTranscriber,
                 ui: any SabbelUI, pipeline: TextPipeline = .identity, errorClearDelay: Duration = .seconds(2),
                 now: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
-                log: (@Sendable (String) -> Void)? = nil) {
+                log: (@Sendable (String) -> Void)? = nil,
+                date: @escaping @Sendable () -> Date = { Date() },
+                audioCapacity: Int = TakeAudio.defaultCapacity) {
         self.audio = audio
         self.focus = focus
         self.ui = ui
@@ -115,6 +130,10 @@ public final class TakeCoordinator {
         self.errorClearDelay = errorClearDelay
         self.now = now
         self.log = log
+        self.injector = injector
+        self.date = date
+        self.audioCapacity = audioCapacity
+        recent = RecentDictations(limit: settings.recentLimit)
         historyEnabled = settings.historyEnabled
         audioDevice = settings.audioDevice
 
@@ -123,6 +142,7 @@ public final class TakeCoordinator {
         let line = PasteLine(injector: injector,
                              history: HistoryLog(url: paths.historyLog, maxBytes: settings.historyMaxBytes),
                              minDuration: settings.minDuration, pipeline: pipeline, log: log)
+        self.line = line
         let deliver: @Sendable (TakeResult) async -> Void = { [weak self] result in
             await self?.finished(result)
         }
@@ -184,6 +204,8 @@ public final class TakeCoordinator {
         }
 
         let transcriber = makeTranscriber()
+        // Nothing of a secure take is kept, and nothing at all when Recent is off.
+        let kept = (focused.secure || recent.limit == 0) ? nil : TakeAudio(capacity: audioCapacity)
         let (samples, sink) = AsyncStream.makeStream(of: [Float].self)
         let missing: String?
         do {
@@ -209,6 +231,7 @@ public final class TakeCoordinator {
             var stats = TakeStats()
             for await buffer in samples {
                 stats.add(buffer)
+                kept?.append(buffer)
                 await transcriber.append(buffer)
             }
             return stats
@@ -227,7 +250,7 @@ public final class TakeCoordinator {
         }
 
         capture = Capture(transcriber: transcriber, samples: sink, feeder: feeder, live: live,
-                          target: target, secure: secure, pressed: pressed)
+                          target: target, secure: secure, audio: kept, pressed: pressed)
         // A new take replaces an error still on display.
         clearError()
         render()
@@ -242,6 +265,8 @@ public final class TakeCoordinator {
         info("Recording stop requested")
         audio.stop()
         take.samples.finish()
+        lastAudio = take.audio
+        lastTarget = take.target
         pending += 1
         jobs.yield(PasteJob(transcriber: take.transcriber, feeder: take.feeder, target: take.target,
                             secure: take.secure, saveHistory: historyEnabled, held: now() - take.pressed))
@@ -287,12 +312,93 @@ public final class TakeCoordinator {
         case .outcome(let outcome):
             if let notice = Self.notice(for: outcome) { ui.notify(notice) }
             render()
+        case .delivered(let outcome, let text, let app):
+            remember(text, app: app)
+            if let notice = Self.notice(for: outcome) { ui.notify(notice) }
+            render()
         }
-        if pending == 0 {
-            let waiters = idleWaiters
-            idleWaiters = []
-            for waiter in waiters { waiter.resume() }
+        releaseIdleWaiters()
+    }
+
+    private func releaseIdleWaiters() {
+        guard pending == 0 else { return }
+        let waiters = idleWaiters
+        idleWaiters = []
+        for waiter in waiters { waiter.resume() }
+    }
+
+    // MARK: recent dictations
+
+    /// A take or a re-transcription is running; neither starts while one is.
+    private var busy: Bool { capture != nil || pending > 0 }
+
+    /// "Transcribe Last Recording Again" is possible: audio is kept and nothing runs.
+    public var canRetranscribe: Bool {
+        lastAudio != nil && lastAudio?.count != 0 && !busy && modelState == .ready
+    }
+
+    /// How many samples of the last take are kept (0 when none).
+    public var retainedSampleCount: Int { lastAudio?.count ?? 0 }
+
+    private func remember(_ text: String, app: String?) {
+        recent.append(RecentDictation(text: text, date: date(), appName: app))
+    }
+
+    /// Pastes the newest entry into whatever app is frontmost, through the same
+    /// injector (so its focus and password-field checks apply).
+    public func pasteLastDictation() {
+        guard let text = recent.entries.first?.text else { return }
+        Task { [weak self, line] in
+            let outcome = await line.paste(text)
+            guard let self else { return }
+            self.info("Paste last: \(outcome.rawValue)")
+            if let notice = Self.notice(for: outcome) { self.ui.notify(notice) }
         }
+    }
+
+    /// Copies an entry to the clipboard as an ordinary copy.
+    public func copyRecent(id: RecentDictation.ID) {
+        guard let entry = recent.entries.first(where: { $0.id == id }) else { return }
+        injector.copy(entry.text)
+        ui.notify(.copiedRecent)
+    }
+
+    /// Forgets the entries and the kept audio.
+    public func clearRecent() {
+        recent.clear()
+        if !busy { lastAudio = nil }
+    }
+
+    /// Recognises the last released take again, runs the pipeline with its
+    /// original target and copies the result (not pasted: focus has moved on).
+    public func retranscribeLast() {
+        guard canRetranscribe, let audio = lastAudio else { return }
+        info("Re-transcribing the last recording: samples=\(audio.count)")
+        let transcriber = makeTranscriber()
+        let target = lastTarget
+        clearError()
+        pending += 1
+        render()
+        Task { [weak self, line] in
+            let result = await line.retranscribe(audio.samples, with: transcriber, target: target)
+            self?.retranscribed(result, target: target)
+        }
+    }
+
+    private func retranscribed(_ result: Retranscription, target: FocusTarget?) {
+        pending -= 1
+        switch result {
+        case .text(let text):
+            remember(text, app: target?.name)
+            injector.copy(text)
+            ui.notify(.copiedRecent)
+            render()
+        case .notRecognized:
+            showError("Not recognized")
+        case .failed:
+            showError("Error")
+        }
+        releaseIdleWaiters()
     }
 
     private static func notice(for outcome: InjectOutcome) -> Notice? {
@@ -398,6 +504,16 @@ enum TakeResult: Sendable {
     case notRecognized
     /// What became of the paste; `.refusedSecure` also for a take that started in a password field.
     case outcome(InjectOutcome)
+    /// The text reached the injector (and was not refused for a password field):
+    /// what became of it, the text and the name of the app the take started in.
+    case delivered(InjectOutcome, text: String, app: String?)
+}
+
+/// The result of recognising a kept recording again.
+enum Retranscription: Sendable {
+    case text(String)
+    case notRecognized
+    case failed
 }
 
 /// Finishes, judges, pastes and saves released takes one at a time, in take order.
@@ -481,6 +597,40 @@ actor PasteLine {
                 log?("Failed to save to history: \(error)")
             }
         }
-        return .outcome(outcome)
+        if outcome == .refusedSecure { return .outcome(outcome) }
+        return .delivered(outcome, text: text, app: job.target?.name)
+    }
+
+    /// Pastes `text` into whatever is frontmost, off the main actor like a take's paste.
+    func paste(_ text: String) -> InjectOutcome {
+        let outcome = injector.inject(text, target: nil)
+        log?("Paste last outcome: \(outcome.rawValue)")
+        return outcome
+    }
+
+    /// A fresh recognition of kept audio, then the pipeline. The audio goes in
+    /// second-sized buffers, as the microphone delivers it, so the streaming
+    /// transcriber sees it as it did live.
+    func retranscribe(_ samples: [Float], with transcriber: StreamingTranscriber,
+                      target: FocusTarget?) async -> Retranscription {
+        var i = 0
+        while i < samples.count {
+            await transcriber.append(Array(samples[i..<min(i + 16_000, samples.count)]))
+            i += 16_000
+        }
+        let recognized: String
+        do {
+            recognized = try await transcriber.finish()
+        } catch {
+            log?("Re-transcription error: \(error)")
+            return .failed
+        }
+        let text = pipeline.process(recognized, target: target)
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            log?("Re-transcription rejected: empty transcription")
+            return .notRecognized
+        }
+        log?("Re-transcription succeeded: chars=\(text.count)")
+        return .text(text)
     }
 }

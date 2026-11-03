@@ -49,6 +49,7 @@ import SabbelSystem
         info("Settings: hotkey=\(settings.hotkeyName) min_duration_seconds=\(settings.minDuration) "
              + "history_enabled=\(settings.historyEnabled) history_max_bytes=\(settings.historyMaxBytes) "
              + "audio_device=\(settings.audioDevice ?? "System Default") "
+             + "history_recent=\(settings.recentLimit) "
              + "text_tidy=\(settings.tidyText) text_app_rules=\(settings.appRules)")
 
         let notifier = Notifier(log: info)
@@ -56,7 +57,8 @@ import SabbelSystem
         let updates = version == "dev" ? nil
             : UpdateChecker(version: version, throttle: UpdateThrottle(stateURL: paths.updateCheckJSON), log: info)
         let menuBar = MenuBar(version: version, paths: paths, historyEnabled: settings.historyEnabled,
-                              historyMaxBytes: settings.historyMaxBytes, notifier: notifier, updates: updates, log: info)
+                              historyMaxBytes: settings.historyMaxBytes,
+                              recentLimit: settings.recentLimit, notifier: notifier, updates: updates, log: info)
         let slot = recognizer
         let coordinator = TakeCoordinator(
             settings: settings, paths: paths, audio: MicCapture(log: info), focus: SystemFocusProbe(),

@@ -18,6 +18,7 @@ public enum Notice: Equatable, Sendable {
     case diagnosticsCopied(Bool)
     case historyCleared
     case updateAvailable(String)
+    case copiedRecent
 
     /// The runtime log every "details in …" message points at.
     static let runtimeLogPath = "/tmp/sabbel-runtime.log"
@@ -35,6 +36,7 @@ public enum Notice: Equatable, Sendable {
         case .diagnosticsCopied(let ok): ok ? "Diagnostics copied" : "Could not copy"
         case .historyCleared: "History cleared"
         case .updateAvailable(let version): "Update v\(version) available"
+        case .copiedRecent: "Copied to clipboard"
         }
     }
 
@@ -54,6 +56,7 @@ public enum Notice: Equatable, Sendable {
         case .diagnosticsCopied(let ok): ok ? "Paste them into your bug report." : "Send \(Self.runtimeLogPath) instead."
         case .historyCleared: ""
         case .updateAvailable: "Click 'Update' in the Sabbel menu for details."
+        case .copiedRecent: ""
         }
     }
 }

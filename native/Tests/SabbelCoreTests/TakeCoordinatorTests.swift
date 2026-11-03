@@ -29,7 +29,8 @@ final class Harness {
          recognizers: [FakeRecognizer] = [Harness.hello()],
          modelState: ModelState = .ready,
          permissionsReady: Bool = true,
-         pipeline: TextPipeline = .identity) {
+         pipeline: TextPipeline = .identity,
+         audioCapacity: Int = TakeAudio.defaultCapacity) {
         dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("sabbel-coordinator-\(UUID().uuidString)", isDirectory: true)
         paths = SabbelPaths(configDir: dir)
@@ -40,7 +41,8 @@ final class Harness {
             settings: settings, paths: paths, audio: audio, focus: focus,
             injector: Injector(env: env, ownPID: focus.ownPID),
             makeTranscriber: { StreamingTranscriber(recognizer: queue.take()) },
-            ui: ui, pipeline: pipeline, errorClearDelay: .milliseconds(30), now: { [clock] in clock.value })
+            ui: ui, pipeline: pipeline, errorClearDelay: .milliseconds(30), now: { [clock] in clock.value },
+            date: { Date(timeIntervalSince1970: 1_700_000_000) }, audioCapacity: audioCapacity)
         coordinator.modelState = modelState
         coordinator.permissionsReady = permissionsReady
     }

@@ -130,6 +130,8 @@ min_duration_seconds = 0.5
 enabled = false        # Seed value. The menu toggle is the primary control
                        # and overrides this once flipped.
 max_bytes = 1000000    # Rotate log to .1 once it grows beyond this.
+recent = 10            # Dictations kept in memory for the Recent menu (0-50,
+                       # 0 turns Recent off).
 
 [text]
 tidy = true            # Remove fillers ("ähm", "uh") and accidental repeats.
@@ -148,6 +150,8 @@ is ignored in favour of its default — a malformed file falls back entirely —
 and the reason is written to `/tmp/sabbel-runtime.log`. Entries from older
 versions (`[model] repo`, `[injection]`, `[general] language`) are ignored the
 same way; you can delete them.
+
+**Recent dictations:** the **Recent** submenu lists your last dictations (newest first, text, app and time). Click one to copy it to the clipboard; **Paste Last Dictation** pastes the newest into the app you are in; **Transcribe Last Recording Again** runs the recognizer once more over the audio of the last take (up to 10 minutes) and copies the result, which helps when the first pass came back empty or wrong. Everything is kept in memory only, never written to disk, and gone when Sabbel quits. Dictations started in a password field are never kept. Set `[history] recent = 0` to switch the feature off.
 
 **Glossary:** the recognizer sometimes misspells English tech terms inside German speech ("Kuber Netties", "Git Hub"). Sabbel menu → **Edit Glossary…** opens `~/.config/sabbel/glossary.txt` (created with a commented template) so you can fix them with replacement rules. Edits apply on the next take, no restart.
 
