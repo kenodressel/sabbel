@@ -194,22 +194,66 @@ import Testing
         #expect(text == "w0 w1")
     }
 
-    @Test func failedPassChangesNothingAndIsRetried() async throws {
+    @Test func failedPassChangesNothingAndIsRetriedNextStep() async throws {
         let script = FakeRecognizer.script(until: 2.6)
         let fake = FakeRecognizer(script: script, mangle: .unstableTail, failingCalls: [1])
         let t = StreamingTranscriber(recognizer: fake)
         var feeder = Feeder()
 
-        await feeder.feed(t, seconds: 2.0)  // pass at 1 s succeeds, pass at 2 s throws
+        await feeder.feed(t, seconds: 1.0)  // pass at 1 s succeeds
+        let afterFirst = await latest(t)
+
+        await feeder.feed(t, seconds: 1.0)  // pass at 2 s throws
         #expect(fake.calls.count == 2)
         #expect(await t.passCount == 1)
 
-        await feeder.feed(t, seconds: 0.1)  // still due: retried at 2.1 s
+        await feeder.feed(t, seconds: 0.9)  // the pass clock advanced: no retry on these appends
+        #expect(fake.calls.count == 2)
+
+        await feeder.feed(t, seconds: 0.1)  // next due step, 3 s: retried, agreeing with pass 1
         #expect(fake.calls.count == 3)
         #expect(await t.passCount == 2)
+        // w0 agreed between the passes at 1 s and 3 s, so the failure left `previous` alone.
+        #expect(afterFirst == LiveText(settled: "", provisional: "w0 w1x"))
+        #expect(await latest(t) == LiveText(settled: "w0", provisional: "w1 w2 w3 w4 w5"))
 
-        await feeder.feed(t, seconds: 1.0)
         #expect(try await t.finish() == joined(script))
+    }
+
+    @Test func longSilenceKeepsBoundedAudio() async throws {
+        // 5 s of speech, then 120 s in which the fake hears no words.
+        let script = FakeRecognizer.script(until: 5)
+        let fake = FakeRecognizer(script: script, mangle: .unstableTail)
+        let t = StreamingTranscriber(recognizer: fake)
+        var feeder = Feeder()
+        var maxKept = 0
+        await feeder.feed(t, seconds: 125) { _ in
+            maxKept = max(maxKept, await t.keptSampleCount)
+        }
+
+        let text = try await t.finish()
+
+        #expect(maxKept <= Self.rate * (10 + 1))
+        let last = try #require(fake.calls.last)
+        #expect(last.sampleCount <= Self.rate * 11)
+        #expect(last.startSample + last.sampleCount == 125 * Self.rate)
+        #expect(text == joined(script))
+    }
+
+    @Test func finalTextEqualsScriptAcrossSilenceGap() async throws {
+        // Speech until 10 s, 30 s of silence, speech again from 40 s to 70 s.
+        let before = FakeRecognizer.script(until: 10)
+        let after = FakeRecognizer.script(until: 30).enumerated().map { i, w in
+            TimedWord(text: "v\(i)", start: w.start + 40, end: w.end + 40)
+        }
+        let script = before + after
+        let fake = FakeRecognizer(script: script, mangle: .unstableTail)
+        let t = StreamingTranscriber(recognizer: fake)
+        var feeder = Feeder()
+        await feeder.feed(t, seconds: 71)
+
+        #expect(try await t.finish() == joined(script))
+        #expect(fake.orderViolations == 0)
     }
 
     @Test func finishRethrowsAndClosesUpdates() async throws {

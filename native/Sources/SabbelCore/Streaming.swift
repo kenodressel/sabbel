@@ -36,15 +36,20 @@ public struct LiveText: Equatable, Sendable {
 ///
 /// - Time is audio time: "now" is the audio appended so far. There is no wall
 ///   clock in here.
-/// - Every `step` seconds of new audio, a pass re-recognises the last `window`
-///   seconds (never reaching back before `keepFrom`).
+/// - Every `step` seconds of new audio, a pass re-recognises the audio from
+///   `keepFrom` to now.
 /// - A word settles once two consecutive passes agree on it, or once it ended
 ///   more than `settleAge` seconds before now. Settled text is final.
-/// - Only the audio from `keepFrom = max(0, settledEnd - finalContext)` on is
-///   kept, so memory and per-pass compute do not grow with the take.
-/// - `finish()` recognises the kept audio once more (the unsettled tail plus
-///   `finalContext` of left-hand context) and that result replaces the tail, so
-///   the pasted text does not depend on how the window happened to fall.
+/// - Only the audio from `keepFrom = max(0, settledEnd - finalContext, now - window)`
+///   on is kept, so memory and per-pass compute do not grow with the take, not
+///   even through long silence. Cutting at `now - window` loses no words: since
+///   `settleAge < window`, every word that ended before then is already settled,
+///   so what is dropped there is silence or settled audio.
+/// - `finish()` recognises the audio from `keepFrom` once more (the unsettled
+///   tail plus `finalContext` of left-hand context) and that result replaces the
+///   tail, so the pasted text does not depend on how the window happened to fall.
+/// - A pass whose recognizer throws changes nothing but the pass clock: the next
+///   attempt comes `step` seconds of audio later.
 public actor StreamingTranscriber {
     private let recognizer: any Recognizer
     private let settleAge: TimeInterval
@@ -69,7 +74,7 @@ public actor StreamingTranscriber {
     private var keptStart = 0
     /// Total samples appended: now = totalSamples / sampleRate.
     private var totalSamples = 0
-    /// `totalSamples` when the last pass ran.
+    /// `totalSamples` when the last pass was attempted (it may have failed).
     private var lastPassSamples = 0
 
     /// A pass is awaiting the recognizer. The actor is reentrant across that
@@ -128,9 +133,10 @@ public actor StreamingTranscriber {
         if _passCount == 0 {
             return join(kept.isEmpty ? [] : try await recognizer.recognize(kept))
         }
-        guard !kept.isEmpty else { return join(settled) }
-        let offset = Double(keptStart) / sampleRate
-        let words = try await recognizer.recognize(kept)
+        let fromSamples = keepFromSamples(now: totalSamples)
+        guard fromSamples < totalSamples else { return join(settled) }
+        let offset = Double(fromSamples) / sampleRate
+        let words = try await recognizer.recognize(Array(kept[(fromSamples - keptStart)...]))
         let tail = words
             .map { shifted($0, by: offset) }
             .filter { $0.end > settledEnd + Self.boundaryTolerance }
@@ -149,13 +155,16 @@ public actor StreamingTranscriber {
         }
 
         let nowSamples = totalSamples
-        let passStartSamples = max(keptStart, nowSamples - windowSamples)
+        let passStartSamples = keepFromSamples(now: nowSamples)
         let audio = Array(kept[(passStartSamples - keptStart)..<(nowSamples - keptStart)])
+        // The pass clock advances whether or not the recognizer succeeds, so a
+        // failing recognizer is retried once per step, not on every append.
+        lastPassSamples = nowSamples
         let words: [TimedWord]
         do {
             words = try await recognizer.recognize(audio)
         } catch {
-            return  // no pass: state unchanged, still due, so the next append retries
+            return  // no pass: agreement state and audio unchanged
         }
 
         let now = Double(nowSamples) / sampleRate
@@ -179,16 +188,22 @@ public actor StreamingTranscriber {
             settled.append(contentsOf: candidates[..<settleCount])
             settledEnd = candidates[settleCount - 1].end
             candidates.removeFirst(settleCount)
-            dropAudio(before: settledEnd - finalContext)
         }
         previous = candidates
-        lastPassSamples = nowSamples
+        dropAudio(before: keepFromSamples(now: nowSamples))
         _passCount += 1
         continuation.yield(LiveText(settled: join(settled), provisional: join(candidates)))
     }
 
-    private func dropAudio(before time: TimeInterval) {
-        let keepFrom = max(0, Int((time * sampleRate).rounded(.down)))
+    /// `keepFrom` in absolute samples for the given now: never before the audio
+    /// still held, never after now.
+    private func keepFromSamples(now nowSamples: Int) -> Int {
+        let afterSettled = Int(((settledEnd - finalContext) * sampleRate).rounded(.down))
+        let keepFrom = max(0, afterSettled, nowSamples - windowSamples)
+        return min(max(keptStart, keepFrom), nowSamples)
+    }
+
+    private func dropAudio(before keepFrom: Int) {
         let drop = min(kept.count, keepFrom - keptStart)
         guard drop > 0 else { return }
         kept.removeFirst(drop)
