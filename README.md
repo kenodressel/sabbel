@@ -237,7 +237,7 @@ base64 < sabbel-release.p12 | gh secret set SABBEL_SIGN_P12
 printf '%s' "$P12_PASSWORD" | gh secret set SABBEL_SIGN_P12_PASSWORD
 ```
 
-Back up `sabbel-release.p12` and its password somewhere safe (a password manager), then delete the loose `.key` and `.crt`. If the certificate is lost, a new one has a different signature and every user has to grant the permissions once more. The Release workflow refuses to publish a tag build that is not signed by "Sabbel Release". Tags containing `-` (for example `v1.0.0-rc.1`) are published as prereleases, which `install.sh` and the update check never pick up.
+Back up `sabbel-release.p12` and its password somewhere safe (a password manager), then delete the loose `.key` and `.crt`. If the certificate is lost, a new one has a different signature and every user has to grant the permissions once more. The Release workflow refuses to publish a tag build that is not signed by "Sabbel Release". Tags containing `-` (for example `v1.0.0-rc.1`) are published as prereleases, which the update check and `install.sh` never pick up on their own. Install one on purpose with `curl -fsSL https://raw.githubusercontent.com/kenodressel/sabbel/main/install.sh | SABBEL_VERSION=v1.0.0-rc.1 sh`.
 
 ## Contributing
 

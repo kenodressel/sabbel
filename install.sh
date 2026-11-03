@@ -3,12 +3,17 @@ set -euo pipefail
 
 # Sabbel installer
 # Usage: curl -fsSL https://raw.githubusercontent.com/kenodressel/sabbel/main/install.sh | sh
+# A specific release (e.g. a prerelease): ... | SABBEL_VERSION=v1.0.0-rc.1 sh
 
 REPO="kenodressel/sabbel"
 APP_NAME="Sabbel.app"
 ZIP_NAME="Sabbel.zip"
 INSTALL_DIR="${HOME}/Applications"
-DOWNLOAD_URL="https://github.com/${REPO}/releases/latest/download/${ZIP_NAME}"
+if [ -n "${SABBEL_VERSION:-}" ]; then
+  DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${SABBEL_VERSION}/${ZIP_NAME}"
+else
+  DOWNLOAD_URL="https://github.com/${REPO}/releases/latest/download/${ZIP_NAME}"
+fi
 
 PLIST_LABEL="com.sabbel.agent"
 PLIST_DIR="${HOME}/Library/LaunchAgents"
@@ -129,7 +134,7 @@ trap 'rm -rf "${TMPDIR}"' EXIT
 # Download
 # ---------------------------------------------------------------------------
 
-info "Downloading Sabbel..."
+info "Downloading Sabbel ${SABBEL_VERSION:-(latest release)}..."
 if command -v curl > /dev/null 2>&1; then
   curl --fail --silent --show-error --location --output "${TMPDIR}/${ZIP_NAME}" "${DOWNLOAD_URL}"
 else
