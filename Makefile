@@ -15,7 +15,7 @@ LAUNCH_SERVICE = $(LAUNCH_DOMAIN)/$(PLIST_NAME)
 # it installed into .venv; a bundle is only standalone when built from one.
 BUILD_PYTHON ?= uv run --extra build python
 
-.PHONY: run test test-model build-app install-app reinstall-app ensure-app-installed autostart autostart-remove stop restart status download-model clean native-build native-test native-test-model help
+.PHONY: run test test-model build-app install-app reinstall-app ensure-app-installed autostart autostart-remove stop restart status download-model clean native-build native-test native-test-model eval help
 
 run: ## Start Sabbel (foreground)
 	uv run sabbel
@@ -160,11 +160,28 @@ clean: ## Remove all build artifacts (forces full rebuild)
 native-build: ## Build the native Swift package (release)
 	$(SWIFT) build --package-path native -c release
 
-native-test: ## Run the native Swift tests
+native-test: ## Run the native Swift tests and the eval-scorer check
+	python3 -I scripts/test_eval_score.py
 	$(SWIFT) test --package-path native
 
 native-test-model: ## Run the native tests against the real Parakeet model (slow, needs the model and the Anna voice)
 	SABBEL_MODEL_TESTS=1 $(SWIFT) test --package-path native --filter SabbelEngineTests
+
+# Accuracy gate over private meeting clips. Prints only the score table; every
+# output stays under $$SABBEL_EVAL_DIR/runs/.
+eval: ## Score full vs stream (clips and long takes) over $$SABBEL_EVAL_DIR
+	@test -n "$(SABBEL_EVAL_DIR)" || { echo "SABBEL_EVAL_DIR is not set (the dir with clips/ and refs.json)"; exit 1; }
+	@set -e; D="$(SABBEL_EVAL_DIR)"; D="$${D/#\~/$$HOME}"; R="$$D/runs/$$(date -u +%Y%m%dT%H%M%SZ)"; mkdir -p "$$R"; \
+		$(SWIFT) build --package-path native -c release --product sabbel-eval >/dev/null 2>&1 || \
+			{ $(SWIFT) build --package-path native -c release --product sabbel-eval 2>&1 | tail -20; exit 1; }; \
+		BIN=$$($(SWIFT) build --package-path native -c release --show-bin-path)/sabbel-eval; \
+		for m in full stream; do \
+			"$$BIN" --clips "$$D/clips" --out "$$R/$$m.jsonl" --mode $$m --model "$${SABBEL_EVAL_MODEL:-v3}" \
+				--long 60,300 --refs "$$D/refs.json" --long-out "$$R/long" >/dev/null 2>"$$R/$$m.err" || \
+				{ echo "sabbel-eval $$m failed (see $$R/$$m.err)"; exit 1; }; \
+		done; \
+		python3 -I scripts/eval_score.py "$$D/refs.json" "$$R/full.jsonl" "$$R/stream.jsonl"; \
+		for n in 60 300; do python3 -I scripts/eval_score.py "$$R/long/refs-long$$n.json" "$$R/full-long$$n.jsonl" "$$R/stream-long$$n.jsonl" | tail -n +2; done
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'

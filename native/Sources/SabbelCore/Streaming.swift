@@ -90,7 +90,7 @@ public actor StreamingTranscriber {
     public nonisolated let updates: AsyncStream<LiveText>
 
     public init(recognizer: any Recognizer, window: TimeInterval = 10, step: TimeInterval = 1,
-                settleAge: TimeInterval = 3, finalContext: TimeInterval = 1, sampleRate: Double = 16_000) {
+                settleAge: TimeInterval = 3, finalContext: TimeInterval = 3, sampleRate: Double = 16_000) {
         self.recognizer = recognizer
         self.settleAge = settleAge
         self.finalContext = finalContext
@@ -230,8 +230,16 @@ public actor StreamingTranscriber {
     /// timestamps move with the model's frame grid (Parakeet: 80 ms frames, the
     /// grid shifting with each pass's start offset), so the same word's end can
     /// land a frame later than it did when it settled.
+    ///
+    /// A word can also come back later than that by more than half its length, and
+    /// then it is the same word as the last settled one starting before `settledEnd`:
+    /// short words ("the", "und") duplicated at the settle boundary otherwise.
     private func isSettledAgain(_ w: TimedWord) -> Bool {
-        (w.start + w.end) / 2 <= settledEnd
+        if (w.start + w.end) / 2 <= settledEnd { return true }
+        if let last = settled.last, w.start < settledEnd + 0.16, Self.normalized(w.text) == Self.normalized(last.text) {
+            return true
+        }
+        return false
     }
 
     private func shifted(_ w: TimedWord, by offset: TimeInterval) -> TimedWord {

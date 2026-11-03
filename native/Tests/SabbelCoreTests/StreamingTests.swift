@@ -180,6 +180,24 @@ import Testing
         #expect(fake.orderViolations == 0)
     }
 
+    /// A short word re-recognised from a later frame grid can come back with its
+    /// midpoint past `settledEnd`; it is still the settled word and must not be
+    /// repeated (measured on real clips: short words duplicated at the boundary).
+    @Test func settledWordShiftedLaterIsNotDuplicated() async throws {
+        let script = FakeRecognizer.script(until: 29.4, wordLength: 0.2, gap: 0.1)
+        let shift = 0.12
+        let fake = FakeRecognizer(script: script, mangle: .custom({ call, words in
+            call % 2 == 0 ? words : words.map { TimedWord(text: $0.text, start: $0.start + shift, end: $0.end + shift) }
+        }))
+        let t = StreamingTranscriber(recognizer: fake)
+        var feeder = Feeder()
+        await feeder.feed(t, seconds: 30)
+
+        let text = try await t.finish()
+
+        #expect(text == joined(script))
+    }
+
     @Test func finishOnlyTranscribesTail() async throws {
         let fake = FakeRecognizer(script: FakeRecognizer.script(until: 59.4), mangle: .unstableTail)
         let t = StreamingTranscriber(recognizer: fake)
