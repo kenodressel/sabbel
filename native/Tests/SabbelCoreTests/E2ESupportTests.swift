@@ -224,3 +224,47 @@ import Testing
         #expect(count.withLock { $0 } == 2)
     }
 }
+
+@Suite struct E2EFixRoundTests {
+    @Test func automationDenialFailsFastNamingTheSetting() {
+        #expect(E2ERules.automationProblem(app: "Finder", status: 0, stderr: "") == nil)
+        let denied = E2ERules.automationProblem(
+            app: "Finder", status: 1,
+            stderr: "execution error: Not authorized to send Apple events to Finder. (-1743)")
+        #expect(denied?.contains("Finder") == true)
+        #expect(denied?.contains("System Settings → Privacy & Security → Automation") == true)
+        let other = E2ERules.automationProblem(app: "TextEdit", status: 1, stderr: "execution error: boom (-600)")
+        #expect(other?.contains("TextEdit") == true)
+        #expect(other?.contains("boom (-600)") == true)
+        #expect(other?.contains("Automation") == false)
+    }
+
+    @Test func aStaleIdleSignalCannotEndTheNextTake() {
+        var token = E2ETakeToken()
+        let first = token.begin()
+        #expect(!token.isIdle)
+        let second = token.begin()  // the first take timed out
+        token.finished(first)       // its leftover waiter fires late
+        #expect(!token.isIdle)
+        token.finished(second)
+        #expect(token.isIdle)
+    }
+
+    @Test func disarmedEnvironmentTouchesNothing() {
+        let base = FakePasteEnvironment()
+        base.frontmostPIDAnswer = { _, _ in 42 }
+        let env = RecordingPasteEnvironment(base: base)
+        env.beginTake(stealFocus: { Issue.record("the thief must not run once disarmed") })
+        env.disarm()
+        _ = Injector(env: env).inject("late text", target: FocusTarget(pid: 42, name: "TextEdit"))
+        #expect(!base.postedCommandV)
+        #expect(!base.didCall { if case .writeTransient = $0 { return true } else { return false } })
+        #expect(!base.didCall { $0 == .restoreClipboard })
+        #expect(base.currentString == "old clip")
+        #expect(env.record().commandV.isEmpty)
+        // A take begun after teardown stays disarmed.
+        env.beginTake(stealFocus: nil)
+        _ = Injector(env: env).inject("later", target: nil)
+        #expect(!base.postedCommandV)
+    }
+}

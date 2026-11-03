@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 import SabbelCore
 @testable import SabbelSystem
@@ -21,4 +22,22 @@ import SabbelCore
             #expect(c.body == notice.message)
         }
     }
+}
+
+@Suite struct RecordOnlyNotifierTests {
+    @Test func neverReachesNotificationCenter() {
+        let lines = LockedLines()
+        let notifier = Notifier(log: { lines.append($0) }, notificationCenter: false)
+        notifier.requestAuthorization()
+        notifier.post(.historyCleared)
+        #expect(!notifier.usesNotificationCenter)
+        #expect(lines.all.contains { $0.contains("History cleared") })
+    }
+}
+
+private final class LockedLines: @unchecked Sendable {
+    private let lock = NSLock()
+    private var lines: [String] = []
+    func append(_ line: String) { lock.withLock { lines.append(line) } }
+    var all: [String] { lock.withLock { lines } }
 }

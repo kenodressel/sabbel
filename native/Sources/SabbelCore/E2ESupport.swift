@@ -78,6 +78,41 @@ public enum E2ERules {
     }
 
     public static func finishLatencyOK(ms: Double) -> Bool { ms <= maxFinishLatencyMS }
+
+    /// The preflight probe `tell application "<app>" to get name` failed: why,
+    /// for the user, or nil when it worked. -1743 is "not authorized to send
+    /// Apple events": Automation consent was refused.
+    public static func automationProblem(app: String, status: Int32, stderr: String) -> String? {
+        guard status != 0 else { return nil }
+        if stderr.contains("-1743") {
+            return "This terminal may not control \(app), so the test cannot drive it. Allow it in "
+                + "System Settings → Privacy & Security → Automation."
+        }
+        let detail = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+        return "Could not talk to \(app) (osascript exited with \(status)"
+            + (detail.isEmpty ? ")." : ": \(detail)).")
+    }
+}
+
+/// Which take the paste line's idle signal belongs to. A take that timed out
+/// leaves its `waitUntilIdle` waiter behind; when that fires late it must not
+/// end the next take's wait.
+public struct E2ETakeToken: Sendable {
+    private var current = 0
+    private var idle: Int?
+
+    public init() {}
+
+    /// Starts a take; its waiter reports back with the returned token.
+    public mutating func begin() -> Int {
+        current += 1
+        return current
+    }
+
+    public mutating func finished(_ token: Int) { idle = token }
+
+    /// The current take's paste line went idle.
+    public var isIdle: Bool { idle == current }
 }
 
 /// PASS/FAIL bookkeeping, printed the way e2e.py prints it.
@@ -135,6 +170,7 @@ public final class RecordingPasteEnvironment: PasteEnvironment, @unchecked Senda
         var take = E2EPasteRecord()
         var all: [String] = []
         var thief: (@Sendable () -> Void)?
+        var disarmed = false
     }
 
     private let base: any PasteEnvironment
@@ -147,9 +183,22 @@ public final class RecordingPasteEnvironment: PasteEnvironment, @unchecked Senda
     public func beginTake(stealFocus: (@Sendable () -> Void)?) {
         state.withLock {
             $0.take = E2EPasteRecord()
-            $0.thief = stealFocus
+            $0.thief = $0.disarmed ? nil : stealFocus
         }
     }
+
+    /// From now on the paste has no effect on the system: no Cmd+V, no
+    /// clipboard write or restore, no focus theft. Called at teardown, so a
+    /// take still on the paste line can neither land in another document once
+    /// the scratch one is closed nor overwrite the clipboard just restored.
+    public func disarm() {
+        state.withLock {
+            $0.disarmed = true
+            $0.thief = nil
+        }
+    }
+
+    private var disarmed: Bool { state.withLock { $0.disarmed } }
 
     /// The current take's record.
     public func record() -> E2EPasteRecord { state.withLock { $0.take } }
@@ -177,6 +226,7 @@ public final class RecordingPasteEnvironment: PasteEnvironment, @unchecked Senda
     }
 
     public func writeTransient(_ text: String) -> Int {
+        if disarmed { return base.clipboardChangeCount() }
         let main = Thread.isMainThread
         let queue = String(cString: __dispatch_queue_get_label(nil))
         state.withLock {
@@ -189,6 +239,7 @@ public final class RecordingPasteEnvironment: PasteEnvironment, @unchecked Senda
     }
 
     public func postCommandV(to pid: Int32?) {
+        if disarmed { return }
         let front = base.frontmostPID()
         base.postCommandV(to: pid)
         let at = base.now()
@@ -198,7 +249,10 @@ public final class RecordingPasteEnvironment: PasteEnvironment, @unchecked Senda
     public func focusedElement() -> FocusedElement? { base.focusedElement() }
     public func focusedValue() -> String? { base.focusedValue() }
     public func captureClipboard() -> ClipboardSnapshot { base.captureClipboard() }
-    public func restoreClipboard(_ snapshot: ClipboardSnapshot) { base.restoreClipboard(snapshot) }
+    public func restoreClipboard(_ snapshot: ClipboardSnapshot) {
+        if disarmed { return }
+        base.restoreClipboard(snapshot)
+    }
     public func clipboardChangeCount() -> Int { base.clipboardChangeCount() }
     public func clipboardString() -> String? { base.clipboardString() }
     public func sleep(_ seconds: TimeInterval) { base.sleep(seconds) }

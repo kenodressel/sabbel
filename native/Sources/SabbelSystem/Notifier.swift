@@ -9,20 +9,37 @@ import SabbelCore
 public final class Notifier: NSObject, UNUserNotificationCenterDelegate, @unchecked Sendable {
     private let log: @Sendable (String) -> Void
     /// Nil when the process has no bundle identifier (the unbundled dev binary),
-    /// where `UNUserNotificationCenter.current()` raises. Notices are only logged then.
+    /// where `UNUserNotificationCenter.current()` raises, or when the caller
+    /// asked for a record-only notifier. Notices are only logged then.
     private let center: UNUserNotificationCenter?
+    /// Why `center` is nil, for the log.
+    private let unavailable: String
 
-    public init(log: @escaping @Sendable (String) -> Void) {
+    /// - Parameter notificationCenter: false never touches
+    ///   `UNUserNotificationCenter`, so the process never registers with
+    ///   Notification Center (the `--e2e` run shares the app's bundle id).
+    public init(log: @escaping @Sendable (String) -> Void, notificationCenter: Bool = true) {
         self.log = log
-        center = Bundle.main.bundleIdentifier == nil ? nil : UNUserNotificationCenter.current()
+        if !notificationCenter {
+            center = nil
+            unavailable = "record-only notifier"
+        } else if Bundle.main.bundleIdentifier == nil {
+            center = nil
+            unavailable = "not running from an app bundle"
+        } else {
+            center = UNUserNotificationCenter.current()
+            unavailable = ""
+        }
         super.init()
         center?.delegate = self
     }
 
+    public var usesNotificationCenter: Bool { center != nil }
+
     /// Asks once for permission to show alerts (no sound, no badge).
     public func requestAuthorization() {
         guard let center else {
-            log("Notifications unavailable: not running from an app bundle")
+            log("Notifications unavailable: \(unavailable)")
             return
         }
         let log = self.log
@@ -43,7 +60,7 @@ public final class Notifier: NSObject, UNUserNotificationCenterDelegate, @unchec
     public func post(_ notice: Notice) {
         let c = Self.content(for: notice)
         guard let center else {
-            log("Notification (not shown, no app bundle): \(c.subtitle)")
+            log("Notification (not shown, \(unavailable)): \(c.subtitle)")
             return
         }
         let content = UNMutableNotificationContent()

@@ -46,7 +46,7 @@ import SabbelSystem
 
     private var ticks: [TimeInterval] = []
     private var tickTimer: Timer?
-    private var takeIdle = false
+    private var takeToken = E2ETakeToken()
 
     private var doc: URL!
     private var docRef: String { "(first document whose path is \"\(doc.path)\")" }
@@ -61,9 +61,26 @@ import SabbelSystem
         if NSWorkspace.shared.frontmostApplication?.localizedName == "loginwindow" {
             Self.abort("The screen is locked. Unlock it: nothing can be pasted to a lock screen.")
         }
-        print("Hands off the Mac for ~30s: the takes paste into TextEdit, and typing,\n"
-              + "copying or switching apps meanwhile would land in the test.")
-        Task { await run() }
+        Task {
+            await Self.checkAutomation()
+            print("Hands off the Mac for ~30s: the takes paste into TextEdit, and typing,\n"
+                  + "copying or switching apps meanwhile would land in the test.")
+            await run()
+        }
+    }
+
+    /// The run sends Apple events to TextEdit and Finder. The first time, macOS
+    /// asks for Automation consent; probing here makes that prompt appear while
+    /// the user is still at the keyboard, not halfway through a take (where an
+    /// unanswered prompt would stall the paste line). A refusal fails fast.
+    /// Probing TextEdit launches it if it is not running; the run opens it anyway.
+    private static func checkAutomation() async {
+        for app in ["Finder", "TextEdit"] {
+            let result = await runTool("/usr/bin/osascript", ["-e", "tell application \"\(app)\" to get name"])
+            if let problem = E2ERules.automationProblem(app: app, status: result.status, stderr: result.error) {
+                abort(problem)
+            }
+        }
     }
 
     private static func abort(_ message: String) -> Never {
@@ -118,7 +135,7 @@ import SabbelSystem
 
         paste = RecordingPasteEnvironment(base: base)
         let menuBar = MenuBar(version: AppDelegate.version, paths: paths, historyEnabled: settings.historyEnabled,
-                              historyMaxBytes: settings.historyMaxBytes, notifier: Notifier(log: tee),
+                              historyMaxBytes: settings.historyMaxBytes, notifier: Notifier(log: tee, notificationCenter: false),
                               updates: nil, log: tee)
         let ui = RecordingUI(menuBar: menuBar)
         let slot = recognizer
@@ -191,7 +208,7 @@ import SabbelSystem
                      ui.statuses.map(\.status).joined(separator: " → "))
         checks.check(ui.statuses.last?.status == "Ready", "\"Ready\" once loaded", ui.statuses.last?.status ?? "nothing shown")
 
-        let (status, _) = await Self.runTool("/usr/bin/open", ["-a", "TextEdit", doc.path])
+        let (status, _, _) = await Self.runTool("/usr/bin/open", ["-a", "TextEdit", doc.path])
         guard status == 0 else { throw E2EError.openFailed(status) }
         opened = true
 
@@ -247,12 +264,12 @@ import SabbelSystem
             let release = Self.now
             coordinator.handle(.stop)
 
-            takeIdle = false
+            let token = takeToken.begin()
             Task {
                 await self.coordinator.waitUntilIdle()
-                self.takeIdle = true
+                self.takeToken.finished(token)
             }
-            while !(takeIdle && coordinator.icon == .idle) && Self.now - release <= E2ERules.takeTimeout {
+            while !(takeToken.isIdle && coordinator.icon == .idle) && Self.now - release <= E2ERules.takeTimeout {
                 try await Task.sleep(for: .milliseconds(50))
             }
             let done = Self.now
@@ -335,6 +352,9 @@ import SabbelSystem
     // MARK: teardown
 
     private func finish(opened: Bool, saved: ClipboardSnapshot) async {
+        // A take still on the paste line (one that timed out) must not paste
+        // into whatever is in front once the scratch document is closed.
+        paste?.disarm()
         tickTimer?.invalidate()
         if opened {
             // Only the scratch document: never quit TextEdit or touch another document.
@@ -385,7 +405,7 @@ import SabbelSystem
 
     private static func synthesiseSpeech(into dir: URL) async throws -> [Float] {
         let wav = dir.appendingPathComponent("phrase.wav")
-        let (status, _) = await runTool("/usr/bin/say", ["-o", wav.path, "--data-format=LEI16@16000", E2ERules.phrase])
+        let (status, _, _) = await runTool("/usr/bin/say", ["-o", wav.path, "--data-format=LEI16@16000", E2ERules.phrase])
         guard status == 0 else { throw E2EError.sayFailed(status) }
         let file = try AVAudioFile(forReading: wav)
         guard let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat,
@@ -414,23 +434,26 @@ import SabbelSystem
     }
 
     /// Off the main thread and off the concurrency pool, which the recognizer uses.
-    private static func runTool(_ path: String, _ args: [String]) async -> (status: Int32, output: String) {
+    private static func runTool(_ path: String, _ args: [String]) async -> (status: Int32, output: String, error: String) {
         await withCheckedContinuation { done in
             DispatchQueue.global(qos: .userInitiated).async { done.resume(returning: runToolSync(path, args)) }
         }
     }
 
-    private nonisolated static func runToolSync(_ path: String, _ args: [String]) -> (status: Int32, output: String) {
-        let process = Process(), pipe = Pipe()
+    private nonisolated static func runToolSync(_ path: String, _ args: [String])
+        -> (status: Int32, output: String, error: String) {
+        let process = Process(), out = Pipe(), err = Pipe()
         process.executableURL = URL(fileURLWithPath: path)
         process.arguments = args
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-        do { try process.run() } catch { return (-1, "") }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.standardOutput = out
+        process.standardError = err
+        do { try process.run() } catch { return (-1, "", String(describing: error)) }
+        // Both are a line or two; neither pipe can fill up while the other is read.
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        let errData = err.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         let output = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-        return (process.terminationStatus, output)
+        return (process.terminationStatus, output, String(decoding: errData, as: UTF8.self))
     }
 }
 
