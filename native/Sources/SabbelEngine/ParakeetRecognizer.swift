@@ -23,7 +23,17 @@ public actor ParakeetRecognizer: Recognizer {
         return ParakeetRecognizer(asr: asr)
     }
 
+    /// Overlapping takes call this concurrently, and the actor is reentrant
+    /// across `await`: without the lock a second call would enter `AsrManager`
+    /// while the first is suspended inside it. FluidAudio's manager is not
+    /// built for that, so transcriptions run strictly one at a time, in order.
+    private let serial = AsyncSerialLock()
+
     public func recognize(_ samples: [Float]) async throws -> [TimedWord] {
+        try await serial.run { try await self.transcribe(samples) }
+    }
+
+    private func transcribe(_ samples: [Float]) async throws -> [TimedWord] {
         // A fresh decoder state per call: every call is its own stretch of audio.
         var state = TdtDecoderState.make(decoderLayers: await asr.decoderLayerCount)
         let result = try await asr.transcribe(samples, decoderState: &state)
