@@ -58,10 +58,6 @@ public actor StreamingTranscriber {
     private let stepSamples: Int
     private let windowSamples: Int
 
-    /// Words closer than this to the end of the settled text are taken to be the
-    /// last settled word seen again, and dropped.
-    private static let boundaryTolerance: TimeInterval = 0.05
-
     // State, all times absolute in the take.
     private var settled: [TimedWord] = []
     /// The end of the last settled word (0 at the start).
@@ -82,6 +78,9 @@ public actor StreamingTranscriber {
     private var passInFlight = false
     private var idleWaiters: [CheckedContinuation<Void, Never>] = []
     private var finishing = false
+    /// The one final recognition; a second `finish()` awaits it instead of
+    /// recognising again.
+    private var finishTask: Task<String, any Error>?
 
     private var _passCount = 0
     private let continuation: AsyncStream<LiveText>.Continuation
@@ -122,13 +121,24 @@ public actor StreamingTranscriber {
     }
 
     /// Waits for a running pass, recognises the kept audio once more and returns
-    /// the whole take's text. Finishes `updates`, also when it throws.
+    /// the whole take's text. Finishes `updates`, also when it throws. Calling it
+    /// again (also concurrently) returns the same result without recognising again.
     public func finish() async throws -> String {
+        if let running = finishTask { return try await running.value }
         finishing = true
+        let task = Task { try await self.finishOnce() }
+        finishTask = task
+        return try await task.value
+    }
+
+    private func finishOnce() async throws -> String {
         defer { continuation.finish() }
         while passInFlight {
             await withCheckedContinuation { idleWaiters.append($0) }
         }
+        // The final recognition counts as in flight, like a pass.
+        passInFlight = true
+        defer { becomeIdle() }
 
         if _passCount == 0 {
             return join(kept.isEmpty ? [] : try await recognizer.recognize(kept))
@@ -139,7 +149,7 @@ public actor StreamingTranscriber {
         let words = try await recognizer.recognize(Array(kept[(fromSamples - keptStart)...]))
         let tail = words
             .map { shifted($0, by: offset) }
-            .filter { $0.end > settledEnd + Self.boundaryTolerance }
+            .filter { !isSettledAgain($0) }
         return join(settled + tail)
     }
 
@@ -147,12 +157,7 @@ public actor StreamingTranscriber {
 
     private func runPass() async {
         passInFlight = true
-        defer {
-            passInFlight = false
-            let waiters = idleWaiters
-            idleWaiters = []
-            for waiter in waiters { waiter.resume() }
-        }
+        defer { becomeIdle() }
 
         let nowSamples = totalSamples
         let passStartSamples = keepFromSamples(now: nowSamples)
@@ -171,7 +176,7 @@ public actor StreamingTranscriber {
         let passStart = Double(passStartSamples) / sampleRate
         var candidates = words
             .map { shifted($0, by: passStart) }
-            .filter { $0.end > settledEnd + Self.boundaryTolerance }
+            .filter { !isSettledAgain($0) }
 
         // The longest common prefix with the previous pass settles…
         var settleCount = 0
@@ -203,6 +208,13 @@ public actor StreamingTranscriber {
         return min(max(keptStart, keepFrom), nowSamples)
     }
 
+    private func becomeIdle() {
+        passInFlight = false
+        let waiters = idleWaiters
+        idleWaiters = []
+        for waiter in waiters { waiter.resume() }
+    }
+
     private func dropAudio(before keepFrom: Int) {
         let drop = min(kept.count, keepFrom - keptStart)
         guard drop > 0 else { return }
@@ -212,13 +224,23 @@ public actor StreamingTranscriber {
 
     // MARK: words
 
+    /// Each pass re-recognises from `settledEnd - finalContext`, so it sees the
+    /// last settled words again. A word whose midpoint is at or before
+    /// `settledEnd` is one of them, and is dropped. The midpoint, not the end:
+    /// timestamps move with the model's frame grid (Parakeet: 80 ms frames, the
+    /// grid shifting with each pass's start offset), so the same word's end can
+    /// land a frame later than it did when it settled.
+    private func isSettledAgain(_ w: TimedWord) -> Bool {
+        (w.start + w.end) / 2 <= settledEnd
+    }
+
     private func shifted(_ w: TimedWord, by offset: TimeInterval) -> TimedWord {
         TimedWord(text: w.text, start: w.start + offset, end: w.end + offset)
     }
 
     /// How words are compared for agreement: lowercased, without leading and
     /// trailing punctuation (and whitespace), so "Fox." agrees with "fox".
-    static func normalized(_ word: String) -> String {
+    private static func normalized(_ word: String) -> String {
         word.lowercased().trimmingCharacters(in: .punctuationCharacters.union(.whitespacesAndNewlines))
     }
 

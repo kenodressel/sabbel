@@ -28,10 +28,49 @@ import Testing
         }
     }
 
+    /// Runs `op`, but records an issue and returns nil instead of hanging the suite
+    /// when it takes longer than `seconds`. `op` must honour cancellation.
+    static func bounded<T: Sendable>(_ seconds: Double = 2,
+                                     sourceLocation: SourceLocation = #_sourceLocation,
+                                     _ op: @escaping @Sendable () async -> T) async -> T? {
+        let result: T?? = await withTaskGroup(of: T?.self) { group in
+            group.addTask { await op() }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                return nil
+            }
+            let first = await group.next()
+            group.cancelAll()
+            return first ?? nil
+        }
+        guard let value = result else {
+            Issue.record("timed out after \(seconds) s", sourceLocation: sourceLocation)
+            return nil
+        }
+        return value
+    }
+
     /// The newest `LiveText`, or nil once the stream has finished with nothing buffered.
-    private func latest(_ t: StreamingTranscriber) async -> LiveText? {
-        var it = t.updates.makeAsyncIterator()
-        return await it.next()
+    /// Bounded: a missing update fails the test instead of hanging it.
+    private func latest(_ t: StreamingTranscriber,
+                        sourceLocation: SourceLocation = #_sourceLocation) async -> LiveText? {
+        let stream = t.updates
+        let value = await Self.bounded(sourceLocation: sourceLocation) { () async -> LiveText? in
+            var it = stream.makeAsyncIterator()
+            return await it.next()
+        }
+        return value ?? nil
+    }
+
+    /// Waits (bounded) until the fake's next recognize call has started; returns its index.
+    private func entered(_ fake: FakeRecognizer,
+                         sourceLocation: SourceLocation = #_sourceLocation) async -> Int? {
+        let stream = fake.entered
+        let value = await Self.bounded(sourceLocation: sourceLocation) { () async -> Int? in
+            var it = stream.makeAsyncIterator()
+            return await it.next()
+        }
+        return value ?? nil
     }
 
     private func joined(_ words: [TimedWord]) -> String {
@@ -111,9 +150,15 @@ import Testing
         #expect(await latest(t) == LiveText(settled: "w0x w1x w2 w3 w4", provisional: "w5 w6 w7 w8 w9 w10 w11"))
     }
 
+    /// Timestamps move by up to ±80 ms per word and call (Parakeet's frame grid).
+    /// Words are 0.4 s long with 0.1 s gaps: then a settled word seen again always
+    /// has its midpoint at or before `settledEnd` (0.2 s > 2 × 0.08 s), and the next
+    /// word never does.
+    static let jitter: TimeInterval = 0.08
+
     @Test func finalTextEqualsScript() async throws {
-        let script = FakeRecognizer.script(until: 44.4)
-        let fake = FakeRecognizer(script: script, mangle: .unstableTail)
+        let script = FakeRecognizer.script(until: 44.4, wordLength: 0.4, gap: 0.1)
+        let fake = FakeRecognizer(script: script, mangle: .unstableTail, jitter: Self.jitter)
         let t = StreamingTranscriber(recognizer: fake)
         var feeder = Feeder()
         await feeder.feed(t, seconds: 45)
@@ -155,26 +200,29 @@ import Testing
     }
 
     @Test func passesNeverOverlap() async throws {
-        // No words: nothing settles, so every appended sample stays and the final
-        // call must cover all of them.
-        let fake = FakeRecognizer(script: [], mangle: .none, delay: 0.3)
+        let script = FakeRecognizer.script(until: 4.0)
+        let fake = FakeRecognizer(script: script, mangle: .unstableTail, delay: 0.3)
         let t = StreamingTranscriber(recognizer: fake)
-        let chunk = Self.rate / 10
-        await withTaskGroup(of: Void.self) { group in
-            for _ in 0..<5 {
-                group.addTask {
-                    for _ in 0..<20 {
-                        await t.append([Float](repeating: 0, count: chunk))
-                        try? await Task.sleep(nanoseconds: 2_000_000)
-                    }
-                }
-            }
-        }
-        _ = try await t.finish()
+        var feeder = Feeder()
+        await feeder.feed(t, seconds: 0.9)
+
+        // The append that reaches 1 s runs a pass. While it is inside recognize,
+        // 2.5 s more arrive (passes fall due at 2 s and 3 s): they only buffer.
+        let chunk = FakeRecognizer.audio(from: feeder.position, count: Self.rate / 10)
+        feeder.position += Self.rate / 10
+        let pass = Task { await t.append(chunk) }
+        #expect(await entered(fake) == 0)
+        await feeder.feed(t, seconds: 2.5)
+        #expect(fake.calls.count == 1)
+        await pass.value
+
+        await feeder.feed(t, seconds: 1.0)  // the next due pass runs on a later append
+        let text = try await t.finish()
 
         #expect(fake.maxInFlight == 1)
-        #expect(await t.passCount >= 1)
-        #expect(fake.calls.last?.sampleCount == 100 * chunk)
+        #expect(fake.calls.count == 3)
+        #expect(fake.orderViolations == 0)
+        #expect(text == joined(script))
     }
 
     // MARK: concurrency and failure contract
@@ -183,7 +231,7 @@ import Testing
         let fake = FakeRecognizer(script: FakeRecognizer.script(until: 0.8), mangle: .none, delay: 0.2)
         let t = StreamingTranscriber(recognizer: fake)
         let pass = Task { await t.append(FakeRecognizer.audio(from: 0, count: Self.rate)) }
-        try await Task.sleep(nanoseconds: 50_000_000)  // the pass is now inside recognize
+        #expect(await entered(fake) == 0)  // the pass is now inside recognize
 
         let text = try await t.finish()
         await pass.value
@@ -241,13 +289,13 @@ import Testing
     }
 
     @Test func finalTextEqualsScriptAcrossSilenceGap() async throws {
-        // Speech until 10 s, 30 s of silence, speech again from 40 s to 70 s.
-        let before = FakeRecognizer.script(until: 10)
-        let after = FakeRecognizer.script(until: 30).enumerated().map { i, w in
+        // Speech until 10 s, 30 s of silence, speech again from 40 s to 70 s, with jitter.
+        let before = FakeRecognizer.script(until: 10, wordLength: 0.4, gap: 0.1)
+        let after = FakeRecognizer.script(until: 30, wordLength: 0.4, gap: 0.1).enumerated().map { i, w in
             TimedWord(text: "v\(i)", start: w.start + 40, end: w.end + 40)
         }
         let script = before + after
-        let fake = FakeRecognizer(script: script, mangle: .unstableTail)
+        let fake = FakeRecognizer(script: script, mangle: .unstableTail, jitter: Self.jitter)
         let t = StreamingTranscriber(recognizer: fake)
         var feeder = Feeder()
         await feeder.feed(t, seconds: 71)
@@ -273,8 +321,24 @@ import Testing
         await feeder.feed(t, seconds: 2.5)
 
         #expect(try await t.finish() == "the quick brown fox jumps over the dog")
-        var it = t.updates.makeAsyncIterator()
-        #expect(await it.next() != nil)  // the newest pass's text stays buffered
-        #expect(await it.next() == nil)
+        #expect(await latest(t) != nil)  // the newest pass's text stays buffered
+        #expect(await latest(t) == nil)
+    }
+
+    @Test func concurrentFinishesShareOneFinalRecognition() async throws {
+        let script = FakeRecognizer.script(until: 0.5, wordLength: 0.2, gap: 0.05)
+        let fake = FakeRecognizer(script: script, mangle: .none, delay: 0.2)
+        let t = StreamingTranscriber(recognizer: fake)
+        var feeder = Feeder()
+        await feeder.feed(t, seconds: 0.6)
+
+        async let a = t.finish()
+        async let b = t.finish()
+        let (first, second) = try await (a, b)
+
+        #expect(first == "w0 w1")
+        #expect(second == "w0 w1")
+        #expect(fake.calls.count == 1)
+        #expect(fake.maxInFlight == 1)
     }
 }

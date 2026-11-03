@@ -11,6 +11,12 @@ import Foundation
 ///   one contiguous, correctly ordered piece of the take (`samples.last`).
 /// - `recognize` returns the script's words that lie wholly inside the span,
 ///   shifted to be relative to `samples[0]`, optionally mangled by `mangle`.
+/// - With `jitter > 0`, every returned word's start and end are each moved by a
+///   deterministic pseudo-random amount in ±`jitter` that differs per call, as a
+///   real model's timestamps move with its frame grid (Parakeet: 80 ms frames,
+///   and the grid shifts with each pass's start offset).
+/// - `entered` yields each call's index as soon as the call starts, so a test can
+///   wait for "a pass is now inside recognize" instead of sleeping.
 /// - Thread-safe: every stored property is read and written under one lock; the
 ///   optional delay is a real `Task.sleep`, so concurrent calls really overlap.
 final class FakeRecognizer: Recognizer, @unchecked Sendable {
@@ -64,6 +70,12 @@ final class FakeRecognizer: Recognizer, @unchecked Sendable {
     private let delay: TimeInterval
     private let sampleRate: Double
     private let failingCalls: Set<Int>
+    private let jitter: TimeInterval
+    private let seed: UInt64
+    private let enteredContinuation: AsyncStream<Int>.Continuation
+
+    /// Each call's index, yielded when the call starts.
+    let entered: AsyncStream<Int>
 
     private let lock = NSLock()
     private var _calls: [Call] = []
@@ -74,12 +86,26 @@ final class FakeRecognizer: Recognizer, @unchecked Sendable {
     struct Failure: Error {}
 
     init(script: [TimedWord], mangle: Mangle = .unstableTail, delay: TimeInterval = 0,
-         failingCalls: Set<Int> = [], sampleRate: Double = 16_000) {
+         failingCalls: Set<Int> = [], jitter: TimeInterval = 0, seed: UInt64 = 0x5EED,
+         sampleRate: Double = 16_000) {
         self.script = script
         self.mangle = mangle
         self.delay = delay
         self.failingCalls = failingCalls
+        self.jitter = jitter
+        self.seed = seed
         self.sampleRate = sampleRate
+        (entered, enteredContinuation) = AsyncStream.makeStream(of: Int.self)
+    }
+
+    /// A deterministic value in [0, 1) for (seed, call, word, which end): SplitMix64.
+    private static func unit(_ seed: UInt64, _ call: Int, _ word: Int, _ which: Int) -> Double {
+        var z = seed &+ UInt64(call) &* 0x9E37_79B9_7F4A_7C15
+        z = z &+ UInt64(word) &* 0xD1B5_4A32_D192_ED03 &+ UInt64(which) &* 0x8CB9_2BA7_2F3D_8DD7
+        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+        z ^= z >> 31
+        return Double(z >> 11) / Double(UInt64(1) << 53)
     }
 
     var calls: [Call] { lock.withLock { _calls } }
@@ -97,6 +123,7 @@ final class FakeRecognizer: Recognizer, @unchecked Sendable {
             _maxInFlight = max(_maxInFlight, _inFlight)
             return _calls.count - 1
         }
+        enteredContinuation.yield(index)
         if delay > 0 { try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
         lock.withLock { _inFlight -= 1 }
         if failingCalls.contains(index) { throw Failure() }
@@ -105,9 +132,14 @@ final class FakeRecognizer: Recognizer, @unchecked Sendable {
         let spanLength = Double(samples.count) / sampleRate
         let lower = spanStart - 1e-6
         let upper = spanStart + spanLength + 1e-6
-        let inside: [TimedWord] = script.filter { w in w.start >= lower && w.end <= upper }
-        var words: [TimedWord] = inside.map { w in
-            TimedWord(text: w.text, start: w.start - spanStart, end: w.end - spanStart)
+        let inside = script.indices.filter { i in script[i].start >= lower && script[i].end <= upper }
+        var words: [TimedWord] = inside.map { i in
+            let w = script[i]
+            let startShift = (Self.unit(seed, index, i, 0) * 2 - 1) * jitter
+            let endShift = (Self.unit(seed, index, i, 1) * 2 - 1) * jitter
+            let start = min(max(0, w.start - spanStart + startShift), spanLength)
+            let end = min(max(start, w.end - spanStart + endShift), spanLength)
+            return TimedWord(text: w.text, start: start, end: end)
         }
 
         switch mangle {
