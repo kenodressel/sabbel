@@ -134,7 +134,17 @@ max_bytes = 1000000    # Rotate log to .1 once it grows beyond this.
 [text]
 tidy = true            # Remove fillers ("ähm", "uh") and accidental repeats.
 app_rules = true       # Per-app formatting, e.g. no trailing period in Slack.
+
+[overlay]
+style = "minimal"      # Floating recording overlay: "minimal", "text" or "off".
 ```
+
+While you hold the key, a small capsule floats at the bottom of the screen
+with the mouse pointer: a red dot, level bars and the elapsed time. After you
+release it shows a spinner, then "Pasted", "Copied" or what went wrong, and
+fades out. It never takes focus or catches clicks. `style = "text"` also shows
+the last two lines of live text under the bars ("•••" in password fields);
+`"off"` hides it. The "Show Live Text" window is independent of this setting.
 
 `app_rules` drops the final full stop in chat, terminal and IDE apps (Slack, Discord, Teams, WhatsApp, Telegram, Signal, Messages; Terminal, iTerm, Ghostty, Warp, kitty, Alacritty, WezTerm; VS Code, Cursor, Zed, JetBrains, Xcode, Windsurf). Question marks, exclamation marks, ellipses and abbreviations ("z. B.", "usw.") keep theirs; other apps are untouched.
 

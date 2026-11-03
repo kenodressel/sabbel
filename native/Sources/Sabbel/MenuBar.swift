@@ -18,6 +18,7 @@ import SabbelSystem
     private let updates: UpdateChecker?
     private let log: @Sendable (String) -> Void
     private let livePanel = LivePanel()
+    private let overlay: RecordingOverlay
 
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let statusLine = NSMenuItem(title: "Status: Starting", action: nil, keyEquivalent: "")
@@ -31,7 +32,9 @@ import SabbelSystem
     private var spinnerIndex = 0
 
     init(version: String, paths: SabbelPaths, historyEnabled: Bool, historyMaxBytes: Int,
-         notifier: Notifier, updates: UpdateChecker?, log: @escaping @Sendable (String) -> Void) {
+         notifier: Notifier, updates: UpdateChecker?, overlayStyle: OverlayStyle = .minimal,
+         log: @escaping @Sendable (String) -> Void) {
+        overlay = RecordingOverlay(style: overlayStyle)
         self.version = version
         self.paths = paths
         self.historyMaxBytes = historyMaxBytes
@@ -110,7 +113,14 @@ import SabbelSystem
 
     func notify(_ notice: Notice) { notifier.post(notice) }
 
-    func live(_ text: LiveText, masked: Bool) { livePanel.update(text, masked: masked) }
+    func live(_ text: LiveText, masked: Bool) {
+        livePanel.update(text, masked: masked)
+        overlay.live(text, masked: masked)
+    }
+
+    func level(_ level: Double) { overlay.level(level) }
+
+    func take(_ event: TakeEvent) { overlay.handle(event) }
 
     // MARK: icon spinner
 

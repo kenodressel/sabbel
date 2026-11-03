@@ -27,6 +27,10 @@ public protocol FocusProbe: Sendable {
     func notify(_ notice: Notice)
     /// `masked`: the take started in a password field, so the text must not be shown.
     func live(_ text: LiveText, masked: Bool)
+    /// The recording take's mic level, 0…1, at most `LevelThrottle.maxRate` times a second.
+    func level(_ level: Double)
+    /// The newest take started, was released, cancelled or finished (the recording overlay).
+    func take(_ event: TakeEvent)
 }
 
 /// The app's behaviour: one take from hotkey press to pasted text. Port of `SabbelApp`.
@@ -49,6 +53,7 @@ public final class TakeCoordinator {
         let secure: Bool
         /// When the hotkey went down, on `now`'s clock.
         let pressed: TimeInterval
+        let id: Int
     }
 
     private let audio: any AudioSource
@@ -92,6 +97,8 @@ public final class TakeCoordinator {
     private var liveTakeID: Int?
     /// Released takes not yet pasted or rejected.
     private var pending = 0
+    /// Their ids, in take order: the paste line delivers results in that order.
+    private var released: [Int] = []
     private var idleWaiters: [CheckedContinuation<Void, Never>] = []
     private var errorText: String?
     private var errorClear: Task<Void, Never>?
@@ -185,9 +192,17 @@ public final class TakeCoordinator {
 
         let transcriber = makeTranscriber()
         let (samples, sink) = AsyncStream.makeStream(of: [Float].self)
+        nextTakeID += 1
+        let id = nextTakeID
+        let meter = LevelMeter(now: now)
         let missing: String?
         do {
-            missing = try audio.start(device: audioDevice) { sink.yield($0) }
+            missing = try audio.start(device: audioDevice) { [weak self] buffer in
+                sink.yield(buffer)
+                if let level = meter.measure(buffer) {
+                    Task { @MainActor in self?.deliverLevel(level, take: id) }
+                }
+            }
         } catch {
             info("Recorder error: \(error)")
             sink.finish()
@@ -214,8 +229,6 @@ public final class TakeCoordinator {
             return stats
         }
 
-        nextTakeID += 1
-        let id = nextTakeID
         liveTakeID = id
         let secure = focused.secure
         ui.live(LiveText(settled: "", provisional: ""), masked: secure)
@@ -227,10 +240,17 @@ public final class TakeCoordinator {
         }
 
         capture = Capture(transcriber: transcriber, samples: sink, feeder: feeder, live: live,
-                          target: target, secure: secure, pressed: pressed)
+                          target: target, secure: secure, pressed: pressed, id: id)
         // A new take replaces an error still on display.
         clearError()
+        ui.take(.started(take: id))
         render()
+    }
+
+    /// Only the take still recording moves the bars.
+    private func deliverLevel(_ level: Double, take id: Int) {
+        guard capture?.id == id else { return }
+        ui.level(level)
     }
 
     private func stop() {
@@ -243,6 +263,8 @@ public final class TakeCoordinator {
         audio.stop()
         take.samples.finish()
         pending += 1
+        released.append(take.id)
+        ui.take(.released(take: take.id))
         jobs.yield(PasteJob(transcriber: take.transcriber, feeder: take.feeder, target: take.target,
                             secure: take.secure, saveHistory: historyEnabled, held: now() - take.pressed))
         render()
@@ -264,11 +286,13 @@ public final class TakeCoordinator {
         take.live.cancel()
         ui.live(LiveText(settled: "", provisional: ""), masked: take.secure)
         if reason == .escape { ui.notify(.cancelled) }
+        ui.take(.cancelled(take: take.id))
         render()
     }
 
     private func finished(_ result: TakeResult) {
         pending -= 1
+        if !released.isEmpty { ui.take(.finished(take: released.removeFirst(), result.end)) }
         switch result {
         case .rejected(.tooShort):
             showError("Too short")
@@ -375,6 +399,22 @@ public final class TakeCoordinator {
     }
 
     private func info(_ message: String) { log?(message) }
+}
+
+extension TakeResult {
+    /// The overlay's reading of the result; failures use the menu bar's error text.
+    var end: TakeEnd {
+        switch self {
+        case .rejected(.tooShort): .failed("Too short")
+        case .rejected(.deadStream): .failed("No signal")
+        case .rejected(.noSpeech): .failed("No audio")
+        case .rejected(.accept), .failed: .failed("Error")
+        case .notRecognized: .failed("Not recognized")
+        case .outcome(.pasted): .pasted
+        case .outcome(.leftInClipboard), .outcome(.focusChanged): .copied
+        case .outcome(.refusedSecure): .failed("Discarded")
+        }
+    }
 }
 
 /// A released take on its way to the paste line.

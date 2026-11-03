@@ -48,6 +48,8 @@ public struct SabbelSettings: Equatable, Sendable {
     public var tidyText = true
     /// Per-app formatting, e.g. no trailing period in chat and terminal apps.
     public var appRules = true
+    /// The floating recording overlay shown during a take.
+    public var overlayStyle: OverlayStyle = .minimal
 
     public init() {}
 
@@ -55,6 +57,7 @@ public struct SabbelSettings: Equatable, Sendable {
         "general": ["hotkey"], "audio": ["min_duration_seconds"],
         "history": ["enabled", "max_bytes"],
         "text": ["tidy", "app_rules"],
+        "overlay": ["style"],
     ]
     private static let obsolete: [String: Set<String>] = [
         "model": ["repo"], "injection": ["pre_paste_delay", "post_paste_delay"],
@@ -123,6 +126,15 @@ public struct SabbelSettings: Equatable, Sendable {
         if let raw = doc["text"]?["app_rules"] {
             if case .bool(let b) = raw { appRules = b }
             else { reject("text", "app_rules", raw, "expected true or false", appRules) }
+        }
+        if let raw = doc["overlay"]?["style"] {
+            if case .string(let v) = raw,
+               let style = OverlayStyle(rawValue: v.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) {
+                overlayStyle = style
+            } else {
+                let names = OverlayStyle.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
+                reject("overlay", "style", raw, "expected one of \(names)", overlayStyle.rawValue)
+            }
         }
     }
 
