@@ -28,26 +28,36 @@ import Testing
         }
     }
 
+    /// Which child of `bounded`'s race finished first. A distinct case, not a nested
+    /// optional: `T` is itself optional at the call sites, so a `nil` from the timer
+    /// would be indistinguishable from `op` returning `nil`.
+    private enum Race<T: Sendable>: Sendable {
+        case finished(T)
+        case timedOut
+    }
+
     /// Runs `op`, but records an issue and returns nil instead of hanging the suite
     /// when it takes longer than `seconds`. `op` must honour cancellation.
     static func bounded<T: Sendable>(_ seconds: Double = 2,
                                      sourceLocation: SourceLocation = #_sourceLocation,
                                      _ op: @escaping @Sendable () async -> T) async -> T? {
-        let result: T?? = await withTaskGroup(of: T?.self) { group in
-            group.addTask { await op() }
+        let winner: Race<T> = await withTaskGroup(of: Race<T>.self) { group in
+            group.addTask { .finished(await op()) }
             group.addTask {
                 try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-                return nil
+                return .timedOut
             }
-            let first = await group.next()
+            let first = await group.next() ?? .timedOut
             group.cancelAll()
-            return first ?? nil
+            return first
         }
-        guard let value = result else {
+        switch winner {
+        case .finished(let value):
+            return value
+        case .timedOut:
             Issue.record("timed out after \(seconds) s", sourceLocation: sourceLocation)
             return nil
         }
-        return value
     }
 
     /// The newest `LiveText`, or nil once the stream has finished with nothing buffered.
