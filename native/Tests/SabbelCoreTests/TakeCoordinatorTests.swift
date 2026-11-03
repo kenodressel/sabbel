@@ -308,6 +308,24 @@ final class Harness {
         #expect(h.ui.lives.allSatisfy { $0.masked })
     }
 
+    @Test func secureAtStartIsNeverPastedOrSaved() async {
+        let recognizer = Harness.hello()
+        var settings = SabbelSettings()
+        settings.historyEnabled = true
+        // Secure when the take starts; a normal field by paste time (the fake
+        // paste environment reports no focused element at all).
+        let h = Harness(settings: settings, focus: FakeFocusProbe([(Harness.target, true)]),
+                        recognizers: [recognizer])
+        h.take()
+        await h.coordinator.waitUntilIdle()
+        #expect(h.env.calls.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: h.paths.historyLog.path))
+        #expect(h.ui.notices == [.discardedSecure])
+        #expect(h.ui.icon == .idle)
+        // finish() still ran, so the take's stream closed.
+        #expect(recognizer.calls.count == 1)
+    }
+
     @Test func liveTextIsForwardedUnmasked() async {
         let h = Harness(recognizers: [FakeRecognizer(script: FakeRecognizer.script(until: 2.5), mangle: .none)])
         h.take(Harness.speech(2.5))

@@ -235,7 +235,7 @@ public final class TakeCoordinator {
         take.samples.finish()
         pending += 1
         jobs.yield(PasteJob(transcriber: take.transcriber, feeder: take.feeder, target: take.target,
-                            saveHistory: historyEnabled))
+                            secure: take.secure, saveHistory: historyEnabled))
         render()
     }
 
@@ -275,7 +275,7 @@ public final class TakeCoordinator {
             showError("Error")
         case .notRecognized:
             showError("Not recognized")
-        case .injected(let outcome):
+        case .outcome(let outcome):
             if let notice = Self.notice(for: outcome) { ui.notify(notice) }
             render()
         }
@@ -374,6 +374,8 @@ struct PasteJob: Sendable {
     /// Ends when capture has stopped and every buffer was appended.
     let feeder: Task<TakeStats, Never>
     let target: FocusTarget?
+    /// The take started in a password field.
+    let secure: Bool
     let saveHistory: Bool
 }
 
@@ -383,7 +385,8 @@ enum TakeResult: Sendable {
     /// The final recognition threw.
     case failed
     case notRecognized
-    case injected(InjectOutcome)
+    /// What became of the paste; `.refusedSecure` also for a take that started in a password field.
+    case outcome(InjectOutcome)
 }
 
 /// Finishes, judges, pastes and saves released takes one at a time, in take order.
@@ -427,6 +430,15 @@ actor PasteLine {
             return .rejected(verdict)
         }
 
+        // A take that started in a password field is a dictated password: it is
+        // never pasted, copied or saved, wherever focus has moved since. The
+        // injector's own check only sees the field focused at paste time.
+        if job.secure {
+            _ = try? await job.transcriber.finish()
+            log?("Take started in a secure field — discarded")
+            return .outcome(.refusedSecure)
+        }
+
         let text: String
         do {
             text = try await job.transcriber.finish()
@@ -451,6 +463,6 @@ actor PasteLine {
                 log?("Failed to save to history: \(error)")
             }
         }
-        return .injected(outcome)
+        return .outcome(outcome)
     }
 }
