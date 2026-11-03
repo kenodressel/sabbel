@@ -136,6 +136,8 @@ tidy = true            # Remove fillers ("ähm", "uh") and accidental repeats.
 app_rules = true       # Per-app formatting, e.g. no trailing period in Slack.
 ```
 
+`app_rules` drops the final full stop in chat, terminal and IDE apps (Slack, Discord, Teams, WhatsApp, Telegram, Signal, Messages; Terminal, iTerm, Ghostty, Warp, kitty, Alacritty, WezTerm; VS Code, Cursor, Zed, JetBrains, Xcode, Windsurf). Question marks, exclamation marks, ellipses and abbreviations ("z. B.", "usw.") keep theirs; other apps are untouched.
+
 Nothing in this file can stop Sabbel from starting. A value Sabbel cannot use
 is ignored in favour of its default — a malformed file falls back entirely —
 and the reason is written to `/tmp/sabbel-runtime.log`. Entries from older
