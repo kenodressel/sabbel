@@ -5,6 +5,7 @@ import SabbelEngine
 
 // sabbel-eval --clips DIR --out FILE.jsonl --mode stream|full [--model v3|ultra]
 //             [--long 60,300 --refs REFS.json --long-out DIR]
+//             [--glossary glossary.txt]   (apply it to every hypothesis)
 //             [--window S --settle-age S --final-context S]   (stream tuning)
 //
 // Writes one JSONL line per clip: {"clip", "text", "finish_ms", "audio_s"}.
@@ -94,10 +95,12 @@ func transcribe(_ samples: [Float], stream: Bool, recognizer: ParakeetRecognizer
 
 struct Item { let name: String; let samples: [Float] }
 
-func evaluate(_ items: [Item], stream: Bool, recognizer: ParakeetRecognizer, tuning: [String: Double], to out: URL) async throws {
+func evaluate(_ items: [Item], stream: Bool, recognizer: ParakeetRecognizer, tuning: [String: Double],
+              glossary: Glossary, to out: URL) async throws {
     var lines = ""
     for item in items {
-        let (text, finish) = try await transcribe(item.samples, stream: stream, recognizer: recognizer, tuning: tuning)
+        let (raw, finish) = try await transcribe(item.samples, stream: stream, recognizer: recognizer, tuning: tuning)
+        let text = glossary.apply(raw).text
         let row: [String: Any] = ["clip": item.name, "text": text, "finish_ms": finish,
                                   "audio_s": Double(item.samples.count) / Double(sampleRate)]
         lines += String(decoding: try JSONSerialization.data(withJSONObject: row, options: [.sortedKeys]), as: UTF8.self) + "\n"
@@ -149,7 +152,7 @@ func run() async throws {
     var it = CommandLine.arguments.dropFirst().makeIterator()
     while let k = it.next() {
         let known: Set = ["clips", "out", "mode", "model", "long", "refs", "long-out",
-                          "window", "settle-age", "final-context"]
+                          "window", "settle-age", "final-context", "glossary"]
         guard k.hasPrefix("--"), known.contains(String(k.dropFirst(2))), let v = it.next() else {
             throw Fail(description: "unknown flag or missing value: \(k)")
         }
@@ -181,7 +184,14 @@ func run() async throws {
         guard let v = Double(raw), v > 0 else { throw Fail(description: "--\(k) needs a positive number, got \(raw)") }
         tuning[k] = v
     }
-    try await evaluate(clips, stream: stream, recognizer: recognizer, tuning: tuning, to: out)
+    var glossary = Glossary.empty
+    if let path = args["glossary"] {
+        let text = try String(contentsOf: URL(fileURLWithPath: (path as NSString).expandingTildeInPath), encoding: .utf8)
+        let parsed = Glossary.parse(text)
+        for warning in parsed.warnings { FileHandle.standardError.write(Data((warning + "\n").utf8)) }
+        glossary = parsed.glossary
+    }
+    try await evaluate(clips, stream: stream, recognizer: recognizer, tuning: tuning, glossary: glossary, to: out)
 
     if let long = args["long"] {
         guard let refsPath = args["refs"], let longOut = args["long-out"] else {
@@ -198,7 +208,8 @@ func run() async throws {
         for target in targets.compactMap({ $0 }) {
             let takes = try longTakes(clips: clips, refs: refs, target: target, dir: longDir)
             let path = out.deletingPathExtension().path + "-long\(Int(target)).jsonl"
-            try await evaluate(takes, stream: stream, recognizer: recognizer, tuning: tuning, to: URL(fileURLWithPath: path))
+            try await evaluate(takes, stream: stream, recognizer: recognizer, tuning: tuning, glossary: glossary,
+                               to: URL(fileURLWithPath: path))
         }
     }
 }

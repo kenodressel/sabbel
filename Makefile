@@ -140,9 +140,10 @@ eval: ## Score full vs stream (clips and long takes) over $$SABBEL_EVAL_DIR
 		$(SWIFT) build --package-path native -c release --product sabbel-eval >/dev/null 2>&1 || \
 			{ $(SWIFT) build --package-path native -c release --product sabbel-eval 2>&1 | tail -20; exit 1; }; \
 		BIN=$$($(SWIFT) build --package-path native -c release --show-bin-path)/sabbel-eval; \
+		G=""; test -f "$$D/glossary.txt" && G="--glossary $$D/glossary.txt"; \
 		for m in full stream; do \
 			"$$BIN" --clips "$$D/clips" --out "$$R/$$m.jsonl" --mode $$m --model "$${SABBEL_EVAL_MODEL:-v3}" \
-				--long 60,300 --refs "$$D/refs.json" --long-out "$$R/long" >/dev/null 2>"$$R/$$m.err" || \
+				--long 60,300 --refs "$$D/refs.json" --long-out "$$R/long" $$G >/dev/null 2>"$$R/$$m.err" || \
 				{ echo "sabbel-eval $$m failed (see $$R/$$m.err)"; exit 1; }; \
 		done; \
 		python3 -I scripts/eval_score.py "$$D/refs.json" "$$R/full.jsonl" "$$R/stream.jsonl"; \

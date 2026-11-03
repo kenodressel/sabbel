@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import SabbelCore
 
@@ -16,5 +17,23 @@ import Testing
         let pipeline = TextPipeline([{ text, target in target?.bundleID == slack.bundleID ? "slack" : text }])
         #expect(pipeline.process("x", target: slack) == "slack")
         #expect(pipeline.process("x", target: nil) == "x")
+    }
+
+    @Test func standardRunsGlossaryThenTidyThenAppRules() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sabbel-pipeline-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let paths = SabbelPaths(configDir: dir)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try "Kubernetes: Kuber Netties\n".write(to: paths.glossary, atomically: true, encoding: .utf8)
+        let pipeline = TextPipeline.standard(settings: SabbelSettings(), paths: paths, log: { _ in })
+        let slack = FocusTarget(pid: 7, name: "Slack", bundleID: "com.tinyspeck.slackmacgap")
+        #expect(pipeline.process("Ähm, wir nutzen Kuber Netties.", target: slack) == "Wir nutzen Kubernetes")
+        #expect(pipeline.process("Ähm, wir nutzen Kuber Netties.", target: nil) == "Wir nutzen Kubernetes.")
+
+        var off = SabbelSettings()
+        off.tidyText = false
+        off.appRules = false
+        let plain = TextPipeline.standard(settings: off, paths: paths, log: { _ in })
+        #expect(plain.process("Ähm, wir nutzen Kuber Netties.", target: slack) == "Ähm, wir nutzen Kubernetes.")
     }
 }

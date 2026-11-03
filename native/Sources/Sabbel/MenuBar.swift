@@ -72,6 +72,7 @@ import SabbelSystem
         let micItem = NSMenuItem(title: "Microphone", action: nil, keyEquivalent: "")
         micItem.submenu = micMenu
         menu.addItem(micItem)
+        menu.addItem(item("Edit Glossary…", #selector(editGlossary)))
 
         menu.addItem(item("Show Live Text", #selector(showLiveText)))
         if updates != nil {
@@ -225,6 +226,17 @@ import SabbelSystem
         }
         log("Microphone set to \(name ?? "System Default")")
         rebuildMicMenu()
+    }
+
+    // MARK: glossary
+
+    @objc private func editGlossary() {
+        do {
+            try Glossary.createTemplateIfMissing(at: paths.glossary)
+        } catch {
+            log("Failed to create glossary: \(error)")
+        }
+        NSWorkspace.shared.open(paths.glossary)
     }
 
     // MARK: other items
