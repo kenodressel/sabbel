@@ -59,6 +59,9 @@ def percentile(sorted_values, p):
 
 def score(refs, rows):
     by_clip = {r["clip"]: r for r in refs}
+    missing = sorted({row["clip"] for row in rows} - by_clip.keys())
+    if missing:
+        raise SystemExit(f"eval_score: {len(missing)} run clip(s) have no entry in the refs file")
     edits = ref_words = terms = kept = dup = 0
     times = []
     for row in rows:

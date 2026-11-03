@@ -198,9 +198,35 @@ import Testing
         #expect(text == joined(script))
     }
 
+    /// The same word spoken over and over, `gap` s apart: what survives settling.
+    private func repeatedWord(gap: TimeInterval) async throws -> (text: String, script: [TimedWord]) {
+        let script = FakeRecognizer.script(until: 29.4, wordLength: 0.2, gap: gap)
+            .map { TimedWord(text: "ja", start: $0.start, end: $0.end) }
+        let fake = FakeRecognizer(script: script, mangle: .none)
+        let t = StreamingTranscriber(recognizer: fake)
+        var feeder = Feeder()
+        await feeder.feed(t, seconds: 30)
+        return (try await t.finish(), script)
+    }
+
+    /// A genuine repeat that starts at least `reseenMargin` after the settled word
+    /// ended is kept.
+    @Test func genuineRepeatBeyondMarginIsKept() async throws {
+        let (text, script) = try await repeatedWord(gap: StreamingTranscriber.reseenMargin + 0.04)
+        #expect(text == joined(script))
+    }
+
+    /// Documents the margin's price: a repeat closer than that is taken for the
+    /// settled word coming back, wherever settlement stops between the two.
+    @Test func repeatWithinMarginIsTakenForTheSettledWord() async throws {
+        let (text, script) = try await repeatedWord(gap: StreamingTranscriber.reseenMargin - 0.06)
+        #expect(text.split(separator: " ").count < script.count)
+        #expect(!text.isEmpty)
+    }
+
     @Test func finishOnlyTranscribesTail() async throws {
         let fake = FakeRecognizer(script: FakeRecognizer.script(until: 59.4), mangle: .unstableTail)
-        let t = StreamingTranscriber(recognizer: fake)
+        let t = StreamingTranscriber(recognizer: fake, finalContext: 1)
         var feeder = Feeder()
         await feeder.feed(t, seconds: 60)
 
@@ -208,7 +234,7 @@ import Testing
 
         let last = try #require(fake.calls.last)
         let seconds = Double(last.sampleCount) / Double(Self.rate)
-        #expect(seconds <= 3 + 1 + 1 + 1)  // settleAge + step + finalContext + 1
+        #expect(seconds <= 3 + 1 + 1 + 1)  // settleAge + step + finalContext (1 here) + 1
         #expect(last.startSample + last.sampleCount == 60 * Self.rate)
     }
 

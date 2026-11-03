@@ -89,8 +89,15 @@ public actor StreamingTranscriber {
     /// Only the newest value is buffered: a reader that falls behind skips to it.
     public nonisolated let updates: AsyncStream<LiveText>
 
-    public init(recognizer: any Recognizer, window: TimeInterval = 10, step: TimeInterval = 1,
-                settleAge: TimeInterval = 3, finalContext: TimeInterval = 3, sampleRate: Double = 16_000) {
+    public static let defaultWindow: TimeInterval = 10
+    public static let defaultSettleAge: TimeInterval = 3
+    /// 3 s, not 1: more left-hand context for the final recognition took stream WER
+    /// on 308 real clips from 8.1 % to 7.4 % (full pass 7.0 %).
+    public static let defaultFinalContext: TimeInterval = 3
+
+    public init(recognizer: any Recognizer, window: TimeInterval = defaultWindow, step: TimeInterval = 1,
+                settleAge: TimeInterval = defaultSettleAge, finalContext: TimeInterval = defaultFinalContext,
+                sampleRate: Double = 16_000) {
         self.recognizer = recognizer
         self.settleAge = settleAge
         self.finalContext = finalContext
@@ -231,16 +238,27 @@ public actor StreamingTranscriber {
     /// grid shifting with each pass's start offset), so the same word's end can
     /// land a frame later than it did when it settled.
     ///
-    /// A word can also come back later than that by more than half its length, and
-    /// then it is the same word as the last settled one starting before `settledEnd`:
-    /// short words ("the", "und") duplicated at the settle boundary otherwise.
+    /// A word can also come back later than that by more than half its length. It is
+    /// still the settled word if it has the same text as the last settled word and
+    /// starts before `settledEnd + reseenMargin`: short words ("the", "und")
+    /// were duplicated at the settle boundary otherwise. `reseenMargin` extends
+    /// "overlaps" a little past `settledEnd` (see there for what that costs).
     private func isSettledAgain(_ w: TimedWord) -> Bool {
         if (w.start + w.end) / 2 <= settledEnd { return true }
-        if let last = settled.last, w.start < settledEnd + 0.16, Self.normalized(w.text) == Self.normalized(last.text) {
+        if let last = settled.last, w.start < settledEnd + Self.reseenMargin,
+           Self.normalized(w.text) == Self.normalized(last.text) {
             return true
         }
         return false
     }
+
+    /// How far past `settledEnd` a same-text word may start and still count as the
+    /// settled word coming back: two frames of Parakeet's 80 ms grid. Measured on
+    /// 308 real clips (v3, stream): margin 0 left 44 repeated words, 1 frame 27,
+    /// 2 frames 19 (the full pass itself has 21). The price: a genuine repeat that
+    /// starts less than this after the settled word ends ("ja ja" spoken without
+    /// a pause), while settlement stops between the two, is dropped.
+    static let reseenMargin: TimeInterval = 2 * 0.08
 
     private func shifted(_ w: TimedWord, by offset: TimeInterval) -> TimedWord {
         TimedWord(text: w.text, start: w.start + offset, end: w.end + offset)

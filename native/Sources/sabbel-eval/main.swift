@@ -20,10 +20,24 @@ let chunk = sampleRate / 10  // 0.1 s, fed without wall-clock pacing
 func readWav(_ url: URL) throws -> [Float] {
     let d = try Data(contentsOf: url)
     var i = 12
+    var formatChecked = false
+    guard d.count >= 12, d[0..<4].elementsEqual("RIFF".utf8), d[8..<12].elementsEqual("WAVE".utf8) else {
+        throw Fail(description: "\(url.lastPathComponent) is not a WAV file")
+    }
+    func le16(_ o: Int) -> Int { Int(d[o]) | Int(d[o + 1]) << 8 }
     while i + 8 <= d.count {
         let id = String(decoding: d[i..<i + 4], as: UTF8.self)
         let size = Int(d[i + 4]) | Int(d[i + 5]) << 8 | Int(d[i + 6]) << 16 | Int(d[i + 7]) << 24
+        if id == "fmt " {
+            // PCM (1), mono, 16 kHz, 16 bit
+            guard size >= 16, i + 8 + 16 <= d.count, le16(i + 8) == 1, le16(i + 10) == 1,
+                  le16(i + 12) | le16(i + 14) << 16 == sampleRate, le16(i + 22) == 16 else {
+                throw Fail(description: "\(url.lastPathComponent) is not 16 kHz mono 16-bit PCM")
+            }
+            formatChecked = true
+        }
         if id == "data" {
+            guard formatChecked else { throw Fail(description: "\(url.lastPathComponent): data before fmt") }
             let end = min(d.count, i + 8 + size)
             return stride(from: i + 8, to: end - 1, by: 2).map {
                 Float(Int16(bitPattern: UInt16(d[$0]) | UInt16(d[$0 + 1]) << 8)) / 32768
@@ -65,8 +79,10 @@ func transcribe(_ samples: [Float], stream: Bool, recognizer: ParakeetRecognizer
         let text = joined(try await recognizer.recognize(samples))
         return (text, ms(since: t0))
     }
-    let st = StreamingTranscriber(recognizer: recognizer, window: tuning["window"] ?? 10,
-                                  settleAge: tuning["settle-age"] ?? 3, finalContext: tuning["final-context"] ?? 3)
+    let st = StreamingTranscriber(recognizer: recognizer,
+                                  window: tuning["window"] ?? StreamingTranscriber.defaultWindow,
+                                  settleAge: tuning["settle-age"] ?? StreamingTranscriber.defaultSettleAge,
+                                  finalContext: tuning["final-context"] ?? StreamingTranscriber.defaultFinalContext)
     // One serial caller: append awaits each pass.
     for start in stride(from: 0, to: samples.count, by: chunk) {
         await st.append(Array(samples[start..<min(samples.count, start + chunk)]))
@@ -115,10 +131,11 @@ func longTakes(clips: [Item], refs: [[String: Any]], target: Double, dir: URL) t
         for c in recordings[rec]!.sorted(by: { $0.name < $1.name }) {
             if !audio.isEmpty { audio += gap }
             audio += c.samples
-            if let r = byClip[c.name] {
-                texts.append(r["ref"] as? String ?? "")
-                terms += r["en_terms"] as? [String] ?? []
+            guard let r = byClip[c.name] else {
+                throw Fail(description: "\(c.name) has no entry in the refs file")
             }
+            texts.append(r["ref"] as? String ?? "")
+            terms += r["en_terms"] as? [String] ?? []
             if Double(audio.count) / Double(sampleRate) >= target { try flush() }
         }
     }
@@ -131,7 +148,11 @@ func run() async throws {
     var args: [String: String] = [:]
     var it = CommandLine.arguments.dropFirst().makeIterator()
     while let k = it.next() {
-        guard k.hasPrefix("--"), let v = it.next() else { throw Fail(description: "bad argument \(k)") }
+        let known: Set = ["clips", "out", "mode", "model", "long", "refs", "long-out",
+                          "window", "settle-age", "final-context"]
+        guard k.hasPrefix("--"), known.contains(String(k.dropFirst(2))), let v = it.next() else {
+            throw Fail(description: "unknown flag or missing value: \(k)")
+        }
         args[String(k.dropFirst(2))] = v
     }
     guard let clipsDir = args["clips"], let outPath = args["out"], let mode = args["mode"],
@@ -155,18 +176,26 @@ func run() async throws {
     let out = URL(fileURLWithPath: (outPath as NSString).expandingTildeInPath)
     let stream = mode == "stream"
     var tuning: [String: Double] = [:]
-    for k in ["window", "settle-age", "final-context"] { if let v = args[k].flatMap(Double.init) { tuning[k] = v } }
+    for k in ["window", "settle-age", "final-context"] {
+        guard let raw = args[k] else { continue }
+        guard let v = Double(raw), v > 0 else { throw Fail(description: "--\(k) needs a positive number, got \(raw)") }
+        tuning[k] = v
+    }
     try await evaluate(clips, stream: stream, recognizer: recognizer, tuning: tuning, to: out)
 
     if let long = args["long"] {
         guard let refsPath = args["refs"], let longOut = args["long-out"] else {
             throw Fail(description: "--long needs --refs and --long-out")
         }
+        let targets = long.split(separator: ",").map { Double($0) }
+        guard !targets.isEmpty, targets.allSatisfy({ ($0 ?? 0) > 0 }) else {
+            throw Fail(description: "--long needs positive seconds, e.g. 60,300")
+        }
         let refsData = try Data(contentsOf: URL(fileURLWithPath: (refsPath as NSString).expandingTildeInPath))
         let refs = try JSONSerialization.jsonObject(with: refsData) as? [[String: Any]] ?? []
         let longDir = URL(fileURLWithPath: (longOut as NSString).expandingTildeInPath)
         try FileManager.default.createDirectory(at: longDir, withIntermediateDirectories: true)
-        for target in long.split(separator: ",").compactMap({ Double($0) }) {
+        for target in targets.compactMap({ $0 }) {
             let takes = try longTakes(clips: clips, refs: refs, target: target, dir: longDir)
             let path = out.deletingPathExtension().path + "-long\(Int(target)).jsonl"
             try await evaluate(takes, stream: stream, recognizer: recognizer, tuning: tuning, to: URL(fileURLWithPath: path))
