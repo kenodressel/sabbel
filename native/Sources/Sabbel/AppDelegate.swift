@@ -49,7 +49,8 @@ import SabbelSystem
         info("Settings: hotkey=\(settings.hotkeyName) min_duration_seconds=\(settings.minDuration) "
              + "history_enabled=\(settings.historyEnabled) history_max_bytes=\(settings.historyMaxBytes) "
              + "audio_device=\(settings.audioDevice ?? "System Default") "
-             + "text_tidy=\(settings.tidyText) text_app_rules=\(settings.appRules)")
+             + "text_tidy=\(settings.tidyText) text_app_rules=\(settings.appRules) "
+             + "text_voice_commands=\(settings.voiceCommands)")
 
         let notifier = Notifier(log: info)
         notifier.requestAuthorization()

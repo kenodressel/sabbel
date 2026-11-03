@@ -416,6 +416,135 @@ final class Harness {
         #expect(h.commandVTargets == [101])
     }
 
+    // MARK: send command
+
+    /// A take that recognizes `words`, one per 0.1 s inside 0.75 s of audio.
+    private static func saying(_ words: String...) -> FakeRecognizer {
+        let script = words.enumerated().map { i, w in
+            TimedWord(text: w, start: 0.05 + Double(i) * 0.15, end: 0.15 + Double(i) * 0.15)
+        }
+        return FakeRecognizer(script: script, mangle: .none)
+    }
+
+    private func returns(_ h: Harness) -> [Int32?] {
+        h.env.calls.compactMap { if case .postReturn(let pid) = $0 { return .some(pid) } else { return nil } }
+    }
+
+    @Test func sendCommandIsCutAndReturnFollowsThePaste() async {
+        let h = Harness(settings: Self.historyOn(), recognizers: [Self.saying("hello,", "press", "enter.")],
+                        pipeline: TextPipeline.identity)
+        h.take()
+        await h.coordinator.waitUntilIdle()
+        #expect(h.pasted == ["hello"])
+        #expect(h.history?.contains("hello\n") == true)
+        #expect(returns(h) == [101])
+        let v = h.env.index { if case .postCommandV = $0 { return true } else { return false } }
+        let r = h.env.index { if case .postReturn = $0 { return true } else { return false } }
+        #expect(v != nil && r != nil && v! < r!)
+        // Time for the app to insert the text.
+        let vAt = h.env.time { if case .postCommandV = $0 { return true } else { return false } }!
+        let rAt = h.env.time { if case .postReturn = $0 { return true } else { return false } }!
+        #expect(rAt - vAt >= 0.08)
+    }
+
+    @Test func sendCommandIsIgnoredWhenTurnedOff() async {
+        var settings = SabbelSettings()
+        settings.voiceCommands = false
+        let h = Harness(settings: settings, recognizers: [Self.saying("hello,", "press", "enter.")])
+        h.take()
+        await h.coordinator.waitUntilIdle()
+        #expect(h.pasted == ["hello, press enter."])
+        #expect(returns(h).isEmpty)
+    }
+
+    @Test func noReturnWhenTheTextStayedInTheClipboard() async {
+        let h = Harness(recognizers: [Self.saying("hello", "press", "enter")])
+        h.env.focusedElementAnswer = { _, _ in
+            FocusedElement(role: "AXImage", subrole: nil, hasSelectedTextRange: false,
+                           valueSettable: false, selectedTextSettable: false)
+        }
+        h.take()
+        await h.coordinator.waitUntilIdle()
+        #expect(h.ui.notices == [.textCopiedNoField])
+        #expect(returns(h).isEmpty)
+    }
+
+    @Test func noReturnWhenFocusChanged() async {
+        let h = Harness(recognizers: [Self.saying("hello", "press", "enter")])
+        h.env.frontmostPIDAnswer = { _, _ in 999 }
+        h.take()
+        await h.coordinator.waitUntilIdle()
+        #expect(h.ui.notices == [.textCopiedFocusChanged])
+        #expect(returns(h).isEmpty)
+    }
+
+    @Test func noReturnWhenFocusMovesBeforeIt() async {
+        // Frontmost during the paste, elsewhere by the time Return would be pressed.
+        let h = Harness(recognizers: [Self.saying("hello", "press", "enter")])
+        h.env.onCall = { call, env in
+            if case .postCommandV = call { env.frontmostPIDAnswer = { _, _ in 999 } }
+        }
+        h.take()
+        await h.coordinator.waitUntilIdle()
+        #expect(h.env.postedCommandV)
+        #expect(returns(h).isEmpty)
+    }
+
+    @Test func sendOnlyPressesReturnWithoutTouchingTheClipboard() async {
+        let h = Harness(settings: Self.historyOn(), recognizers: [Self.saying("send", "message.")])
+        h.take()
+        await h.coordinator.waitUntilIdle()
+        #expect(returns(h) == [101])
+        #expect(h.pasted.isEmpty)
+        #expect(!h.env.didCall { if case .captureClipboard = $0 { return true } else { return false } })
+        #expect(!h.env.postedCommandV)
+        #expect(h.history == nil)
+        #expect(h.ui.icon == .idle)
+    }
+
+    @Test func sendOnlyIsRefusedInAPasswordField() async {
+        let h = Harness(recognizers: [Self.saying("press", "enter")])
+        h.env.focusedElementAnswer = { _, _ in
+            FocusedElement(role: "AXTextField", subrole: "AXSecureTextField", hasSelectedTextRange: true,
+                           valueSettable: true, selectedTextSettable: true)
+        }
+        h.take()
+        await h.coordinator.waitUntilIdle()
+        #expect(returns(h).isEmpty)
+    }
+
+    @Test func sendOnlyIsRefusedWhileSabbelIsFrontmost() async {
+        let h = Harness(focus: FakeFocusProbe([(FocusTarget(pid: 4_242, name: "Sabbel"), false)], ownPID: 4_242),
+                        recognizers: [Self.saying("press", "enter")])
+        h.env.frontmostPIDAnswer = { _, _ in 4_242 }
+        h.take()
+        await h.coordinator.waitUntilIdle()
+        #expect(returns(h).isEmpty)
+    }
+
+    @Test func sendOnlyWithCommandsOffIsPastedAsSpoken() async {
+        var settings = SabbelSettings()
+        settings.voiceCommands = false
+        let h = Harness(settings: settings, recognizers: [Self.saying("press", "enter")])
+        h.take()
+        await h.coordinator.waitUntilIdle()
+        #expect(h.pasted == ["press enter"])
+        #expect(returns(h).isEmpty)
+    }
+
+    @Test func appRulesSeeTheTextWithoutTheSendCommand() async {
+        // "Fertig. Send message." in Slack: the period belongs to "Fertig.", and the
+        // app rule drops it because the command no longer follows it.
+        let slack = FocusTarget(pid: 101, name: "Slack", bundleID: "com.tinyspeck.slackmacgap")
+        let h = Harness(focus: FakeFocusProbe([(slack, false)]),
+                        recognizers: [Self.saying("Fertig.", "Send", "message.")],
+                        pipeline: TextPipeline([AppRules.stage]))
+        h.take()
+        await h.coordinator.waitUntilIdle()
+        #expect(h.pasted == ["Fertig"])
+        #expect(returns(h) == [101])
+    }
+
     // MARK: microphone
 
     @Test func micStartFailureShowsMicError() async {
