@@ -17,13 +17,19 @@ public final class SystemPasteEnvironment: PasteEnvironment, @unchecked Sendable
         NSWorkspace.shared.frontmostApplication?.processIdentifier
     }
 
+    /// Bounded like `SystemFocusProbe`: the paste path reads the focused
+    /// element several times per take (and polls its value), and an app that
+    /// hangs would otherwise hold each read for AX's default 6 s.
     private func focusedUIElement() -> AXUIElement? {
         guard let pid = frontmostPID() else { return nil }
         let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, SystemFocusProbe.axTimeout)
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(app, kAXFocusedUIElementAttribute as CFString, &value) == .success,
               let value, CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
-        return (value as! AXUIElement)
+        let element = value as! AXUIElement
+        AXUIElementSetMessagingTimeout(element, SystemFocusProbe.axTimeout)
+        return element
     }
 
     private func stringAttribute(_ element: AXUIElement, _ name: String) -> String? {
