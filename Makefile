@@ -14,17 +14,20 @@ LAUNCH_SERVICE = $(LAUNCH_DOMAIN)/$(PLIST_NAME)
 # The interpreter that runs py2app. CI overrides it with the framework Python
 # it installed into .venv; a bundle is only standalone when built from one.
 BUILD_PYTHON ?= uv run --extra build python
+# "dev" or a tag without its "v"; becomes SabbelVersion in Info.plist.
+VERSION ?= dev
 
-.PHONY: run test test-model build-app install-app reinstall-app ensure-app-installed autostart autostart-remove stop restart status download-model clean native-build native-test native-test-model help
+.PHONY: run test test-model test-python build-app build-app-python install-app reinstall-app ensure-app-installed autostart autostart-remove stop restart status download-model clean native-build native-test native-test-model help
 
 run: ## Start Sabbel (foreground)
 	uv run sabbel
 
-test: ## Run the unit tests (mocked MLX, ~1s)
+test: native-test test-python ## Run the native tests and (until Task 14) the Python suite
+
+test-python: ## Run the Python unit tests (mocked MLX, ~1s)
 	uv run --extra dev pytest -q
 
-test-model: ## Run the real-model tests on Metal (~2.3GB download on first run)
-	uv run --extra dev pytest -m model -v
+test-model: native-test-model ## Run the real-model tests against Parakeet (slow)
 
 icons/Sabbel.icns: icons/sabbel-icon.png ## Generate app icon from sabbel-icon.png
 	@mkdir -p build/Sabbel.iconset
@@ -40,7 +43,7 @@ icons/Sabbel.icns: icons/sabbel-icon.png ## Generate app icon from sabbel-icon.p
 	@sips -z 16 16 icons/sabbel-icon.png --out build/Sabbel.iconset/icon_16x16.png >/dev/null
 	@iconutil -c icns build/Sabbel.iconset -o icons/Sabbel.icns
 
-build-app: icons/Sabbel.icns ## Build standalone Sabbel.app with py2app
+build-app-python: icons/Sabbel.icns ## Build the legacy Python Sabbel.app with py2app (removed in Task 14)
 	@rm -rf build dist
 	$(BUILD_PYTHON) setup.py py2app
 	@# mlx.metallib is a Metal shader archive (not Mach-O), so py2app's
@@ -80,16 +83,16 @@ build-app: icons/Sabbel.icns ## Build standalone Sabbel.app with py2app
 		fi
 	@echo "✓ Built dist/Sabbel.app"
 
+build-app: native-build icons/Sabbel.icns ## Build and sign dist/Sabbel.app (Swift); VERSION=1.2.3, SABBEL_SIGN_IDENTITY=...
+	@scripts/bundle_app.sh $(VERSION)
+
 install-app: build-app ## Install Sabbel.app into ~/Applications
 	@pkill -x "Sabbel" 2>/dev/null || true
 	@launchctl bootout $(LAUNCH_SERVICE) 2>/dev/null || true
-	@tccutil reset Accessibility com.sabbel.app 2>/dev/null || true
-	@tccutil reset Microphone com.sabbel.app 2>/dev/null || true
 	@mkdir -p $(HOME)/Applications
 	@rm -rf $(INSTALL_APP_DIR)
 	@cp -R dist/Sabbel.app $(INSTALL_APP_DIR)
 	@echo "✓ Installed $(INSTALL_APP_DIR)"
-	@echo "  Permissions were reset — macOS will prompt again on launch."
 
 reset-permissions: ## Reset Accessibility + Microphone permissions for Sabbel
 	@tccutil reset Accessibility com.sabbel.app 2>/dev/null || true
@@ -149,8 +152,8 @@ status: ## Check if Sabbel is running
 		echo "✗ LaunchAgent not installed."; \
 	fi
 
-download-model: ## Pre-download Parakeet model (~2.3GB)
-	uv run python -c "from sabbel.transcriber import TranscriptionEngine; TranscriptionEngine().warmup()"
+download-model: ## Pre-download the Parakeet model (loads it once via a native model test)
+	SABBEL_MODEL_TESTS=1 $(SWIFT) test --package-path native --filter ModelTests/englishPhrase
 	@echo "✓ Model cached."
 
 clean: ## Remove all build artifacts (forces full rebuild)

@@ -186,13 +186,56 @@ git clone https://github.com/kenodressel/sabbel
 cd sabbel
 uv run sabbel            # Run from source
 uv run pytest            # Run tests
-make build-app           # Build standalone .app with py2app
-make install-app         # Build + install + reset permissions
+make build-app           # Build and sign dist/Sabbel.app (Swift); VERSION=1.2.3 sets the version
+make install-app         # Build + install into ~/Applications
+make build-app-python    # Legacy py2app build (removed with the Python app)
 make restart             # Reload the already installed app during normal dev
 make reset-permissions   # Reset Accessibility + Microphone permissions manually
 ```
 
-Note: `make install-app` automatically resets TCC permissions because each build has a new ad-hoc signature. macOS will prompt for Accessibility and Microphone permissions again on launch.
+Note: `make build-app` signs with `$SABBEL_SIGN_IDENTITY`. If that is unset it uses the "Sabbel Release" certificate when your keychain has it (see below), and signs ad hoc otherwise. An ad-hoc signature changes with every build, so macOS forgets the Accessibility and Microphone grants after each rebuild; run `make reset-permissions` to clear stale entries.
+
+### Signing releases
+
+macOS ties Accessibility and Microphone grants to the app's code signature. Releases are therefore signed with a stable self-signed certificate, "Sabbel Release", so that grants survive updates. There is no notarization, so the app is not sandboxed or hardened. The maintainer creates the certificate once; CI only imports it.
+
+```bash
+# 1. Create a self-signed code-signing certificate (10 years).
+cat > /tmp/sabbel-cert.cnf <<'CNF'
+[req]
+distinguished_name = dn
+x509_extensions = ext
+prompt = no
+[dn]
+CN = Sabbel Release
+[ext]
+keyUsage = critical, digitalSignature
+extendedKeyUsage = critical, codeSigning
+basicConstraints = critical, CA:false
+CNF
+/usr/bin/openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+  -config /tmp/sabbel-cert.cnf -keyout sabbel-release.key -out sabbel-release.crt
+
+# 2. Bundle it as a .p12. Use macOS's own /usr/bin/openssl (LibreSSL) throughout:
+#    it writes a format `security import` reads; Homebrew OpenSSL 3 needs -legacy for that.
+P12_PASSWORD="$(/usr/bin/openssl rand -base64 24)"
+/usr/bin/openssl pkcs12 -export -inkey sabbel-release.key -in sabbel-release.crt \
+  -name "Sabbel Release" -out sabbel-release.p12 -passout "pass:$P12_PASSWORD"
+
+# 3. Import it locally so `make build-app` finds it, and trust it for code signing
+#    (without the trust step a self-signed certificate is not a valid identity).
+security import sabbel-release.p12 -k ~/Library/Keychains/login.keychain-db \
+  -P "$P12_PASSWORD" -T /usr/bin/codesign
+security add-trusted-cert -r trustRoot -p codeSign \
+  -k ~/Library/Keychains/login.keychain-db sabbel-release.crt
+security find-identity -v -p codesigning   # must list "Sabbel Release"
+
+# 4. Store the two secrets for the Release workflow.
+base64 < sabbel-release.p12 | gh secret set SABBEL_SIGN_P12
+printf '%s' "$P12_PASSWORD" | gh secret set SABBEL_SIGN_P12_PASSWORD
+```
+
+Back up `sabbel-release.p12` and its password somewhere safe (a password manager), then delete the loose `.key` and `.crt`. If the certificate is lost, a new one has a different signature and every user has to grant the permissions once more. The Release workflow refuses to publish a tag build that is not signed by "Sabbel Release". Tags containing `-` (for example `v1.0.0-rc.1`) are published as prereleases, which `install.sh` and the update check never pick up.
 
 ## Contributing
 
