@@ -38,6 +38,15 @@ private func hasVoice(_ name: String) throws -> Bool {
     return out.split(separator: "\n").contains { $0.hasPrefix(name + " ") }
 }
 
+enum MissingVoicePolicy { case skip, fail }
+
+/// What a test does when the voice it needs is not installed. Locally that is
+/// a skip with a message; on CI (`CI` set) it fails, so a runner image without
+/// the voice cannot turn the English-terms check into a silent pass.
+func missingVoicePolicy(environment: [String: String] = ProcessInfo.processInfo.environment) -> MissingVoicePolicy {
+    environment["CI"] != nil ? .fail : .skip
+}
+
 private func footprintMB() -> Double {
     var info = task_vm_info_data_t()
     var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
@@ -79,7 +88,10 @@ private func similarity(_ a: String, _ b: String) -> Double {
 
     @Test func mixedGermanEnglish() async throws {
         guard try hasVoice("Anna") else {
-            print("SKIPPED mixedGermanEnglish: German voice Anna not installed")
+            switch missingVoicePolicy() {
+            case .fail: Issue.record("German voice Anna not installed on this CI runner; mixedGermanEnglish cannot run")
+            case .skip: print("SKIPPED mixedGermanEnglish: German voice Anna not installed")
+            }
             return
         }
         let rec = try await Models.recognizer.value
@@ -164,3 +176,17 @@ private func similarity(_ a: String, _ b: String) -> Double {
         #expect(ms <= bound, "finishLatency: \(Int(ms)) ms, bound \(Int(bound)) ms")
     }
 }
+
+/// The model tests' decisions that need no model, so they run in every `make native-test`.
+@Suite struct ModelTestPolicyTests {
+    /// mixedGermanEnglish is CI's only guard for English terms in German speech:
+    /// a runner without the Anna voice must fail, not pass with a skip message.
+    @Test func missingAnnaFailsOnCI() {
+        #expect(missingVoicePolicy(environment: ["CI": "true"]) == .fail)
+    }
+
+    @Test func missingAnnaSkipsLocally() {
+        #expect(missingVoicePolicy(environment: [:]) == .skip)
+    }
+}
+
