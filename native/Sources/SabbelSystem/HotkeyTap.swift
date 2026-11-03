@@ -22,7 +22,8 @@ public enum HotkeyEventMapper {
     }
 
     /// Pure mapping of one CGEvent's fields to the state machine's input.
-    /// `hotkeyIsDown` carries modifier state across flagsChanged events.
+    /// `hotkeyIsDown` carries modifier state across flagsChanged events, and
+    /// tracks a non-modifier hotkey's held state for `resync`.
     public static func map(type: CGEventType, keyCode: UInt16, flags: CGEventFlags, isSynthetic: Bool,
                            spec: HotkeySpec, hotkeyIsDown: inout Bool) -> KeyInput? {
         // Events posted by another process (our own Cmd+V, text expanders, automation) must not
@@ -38,14 +39,41 @@ public enum HotkeyEventMapper {
             hotkeyIsDown = false
             return .hotkeyUp
         case .keyDown:
-            if !spec.isModifier && keyCode == spec.keyCode { return .hotkeyDown }
+            if !spec.isModifier && keyCode == spec.keyCode {
+                hotkeyIsDown = true
+                return .hotkeyDown
+            }
             return keyCode == 53 ? .escapeDown : .otherKeyDown
         case .keyUp:
-            if !spec.isModifier && keyCode == spec.keyCode { return .hotkeyUp }
+            if !spec.isModifier && keyCode == spec.keyCode {
+                hotkeyIsDown = false
+                return .hotkeyUp
+            }
             return nil
         default:
             return nil
         }
+    }
+
+    /// What to emit when the tap comes back after being disabled.
+    ///
+    /// Events were missed while it was off. A release among them would leave
+    /// the state machine holding a take open: the next press is ignored as
+    /// auto-repeat and the release after it stops a take that recorded for
+    /// minutes. So a hotkey the tap believed down but that is up now gets its
+    /// release delivered. A missed press is not replayed: the take would start
+    /// late and clip its first words anyway.
+    public static func resync(wasDown: Bool, isDownNow: Bool) -> KeyInput? {
+        wasDown && !isDownNow ? .hotkeyUp : nil
+    }
+
+    /// Whether the hotkey is physically held right now: modifiers from the
+    /// session's flag state, other keys from the session's key state.
+    static func isPhysicallyDown(_ spec: HotkeySpec) -> Bool {
+        if spec.isModifier {
+            return isModifierDown(keyCode: spec.keyCode, flags: CGEventSource.flagsState(.combinedSessionState))
+        }
+        return CGEventSource.keyState(.combinedSessionState, key: CGKeyCode(spec.keyCode))
     }
 }
 
@@ -130,12 +158,13 @@ public final class HotkeyTap: @unchecked Sendable {
             let port = tap
             lock.unlock()
             if let port { CGEvent.tapEnable(tap: port, enable: true) }
-            // Events were missed while disabled; re-sync the modifier state so a lost release doesn't cost the next press.
-            if spec.isModifier {
-                let down = HotkeyEventMapper.isModifierDown(keyCode: spec.keyCode, flags: CGEventSource.flagsState(.combinedSessionState))
-                hotkeyIsDown = down
-                log("Hotkey tap re-synced: modifier \(down ? "down" : "up")")
-            }
+            // Events were missed while disabled; re-sync so a lost release neither
+            // costs the next press nor stretches the open take (see `resync`).
+            let down = HotkeyEventMapper.isPhysicallyDown(spec)
+            let missed = HotkeyEventMapper.resync(wasDown: hotkeyIsDown, isDownNow: down)
+            hotkeyIsDown = down
+            log("Hotkey tap re-synced: hotkey \(down ? "down" : "up")\(missed != nil ? ", delivering the missed release" : "")")
+            if let missed { onInput(missed, ProcessInfo.processInfo.systemUptime) }
             return
         }
         let synthetic = event.getIntegerValueField(.eventSourceUnixProcessID) != 0

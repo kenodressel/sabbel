@@ -77,4 +77,32 @@ import SabbelCore
         #expect(!HotkeyEventMapper.isModifierDown(keyCode: 61, flags: .maskCommand))
         #expect(!HotkeyEventMapper.isModifierDown(keyCode: 96, flags: .maskAlternate))
     }
+
+    // MARK: re-sync after the tap was disabled
+
+    /// The release happened while the tap was disabled: the state machine still
+    /// thinks the key is held, so the re-sync must deliver the lost release.
+    @Test func resyncAfterAMissedReleaseEmitsHotkeyUp() {
+        #expect(HotkeyEventMapper.resync(wasDown: true, isDownNow: false) == .hotkeyUp)
+    }
+
+    @Test func resyncEmitsNothingWhenTheStateMatches() {
+        #expect(HotkeyEventMapper.resync(wasDown: true, isDownNow: true) == nil)
+        #expect(HotkeyEventMapper.resync(wasDown: false, isDownNow: false) == nil)
+        // A press missed while disabled is not replayed: starting a take late would clip it anyway.
+        #expect(HotkeyEventMapper.resync(wasDown: false, isDownNow: true) == nil)
+    }
+
+    /// A non-modifier hotkey's held state is tracked too, so a re-sync can tell it was down.
+    @Test func plainKeyTracksDownState() {
+        var down = false
+        _ = map(.keyDown, 96, spec: f5, down: &down)
+        #expect(down)
+        _ = map(.keyUp, 96, spec: f5, down: &down)
+        #expect(!down)
+        // Other keys leave it alone.
+        _ = map(.keyDown, 96, spec: f5, down: &down)
+        _ = map(.keyUp, 0, spec: f5, down: &down)
+        #expect(down)
+    }
 }
