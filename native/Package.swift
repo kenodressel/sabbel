@@ -13,9 +13,15 @@ let package = Package(
             "SabbelCore",
             .product(name: "FluidAudio", package: "FluidAudio"),
         ]),
-        .executableTarget(name: "Sabbel", dependencies: ["SabbelCore", "SabbelEngine"]),
+        .target(name: "SabbelSystem", dependencies: ["SabbelCore"], linkerSettings: [
+            .linkedFramework("AppKit"),
+            .linkedFramework("ApplicationServices"),
+            .linkedFramework("AVFoundation"),
+        ]),
+        .executableTarget(name: "Sabbel", dependencies: ["SabbelCore", "SabbelEngine", "SabbelSystem"]),
         .executableTarget(name: "sabbel-eval", dependencies: ["SabbelCore", "SabbelEngine"]),
         .testTarget(name: "SabbelCoreTests", dependencies: ["SabbelCore"]),
+        .testTarget(name: "SabbelSystemTests", dependencies: ["SabbelSystem"]),
         .testTarget(name: "SabbelEngineTests", dependencies: ["SabbelEngine"], exclude: ["Fixtures"]),
     ]
 )
