@@ -114,11 +114,6 @@ if [ -d "${DEST}" ]; then
   launchctl bootout "${DOMAIN}/${PLIST_LABEL}" 2>/dev/null || true
   sleep 1
 
-  # Reset TCC permissions for the old app identity so macOS prompts
-  # cleanly for the new build instead of silently denying
-  tccutil reset Accessibility com.sabbel.app 2>/dev/null || true
-  tccutil reset Microphone com.sabbel.app 2>/dev/null || true
-
   rm -rf "${DEST}"
 fi
 
@@ -197,11 +192,12 @@ printf "\n"
 if [ "${IS_UPDATE}" = true ]; then
   success "Sabbel has been updated and launched."
   printf "\n"
-  printf "  macOS will prompt for Accessibility and Microphone permissions again —\n"
-  printf "  this is normal after an update since the app signature changed.\n"
+  printf "  Your Accessibility and Microphone permissions carry over, because\n"
+  printf "  releases are signed with the same certificate.\n"
 else
   success "Sabbel has been installed to ${BOLD}${DEST}${RESET} and launched."
   printf "\n"
-  printf "  Grant Accessibility and Microphone permissions when macOS prompts.\n"
+  printf "  Sabbel lives in the menu bar. Open its menu to see its status and\n"
+  printf "  which permissions it still needs.\n"
 fi
 printf "\n"
