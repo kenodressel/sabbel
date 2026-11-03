@@ -87,12 +87,16 @@ public enum TextTidy {
 
     // MARK: - Fillers
 
-    private static func isFiller(_ t: Token) -> Bool {
+    /// `prev` is the word before `t`, nil at the start of the text.
+    private static func isFiller(_ t: Token, after prev: Token?) -> Bool {
         let word = t.head.lowercased()
         if fillers.contains(word) { return true }
-        // "um" is a common German word ("um 5 Uhr"); only a comma or the end of
-        // a sentence right after it marks it as a hesitation.
-        return word == "um" && !t.trail.isEmpty
+        // "um" is a common German word ("um 5 Uhr"), and a German speaker
+        // hesitates right after it too ("Es geht um, äh, die Planung"). So it is
+        // a filler only when set off on both sides: punctuation after it, and a
+        // sentence start or a comma before it ("Um, I think", "so, um, yes").
+        guard word == "um", !t.trail.isEmpty else { return false }
+        return endsSentence(prev) || prev?.trail == ","
     }
 
     private static func endsSentence(_ t: Token?) -> Bool {
@@ -104,7 +108,7 @@ public enum TextTidy {
         var removed = 0
         var i = 0
         while i < tokens.count {
-            guard isFiller(tokens[i]) else {
+            guard isFiller(tokens[i], after: i > 0 ? tokens[i - 1] : nil) else {
                 i += 1
                 continue
             }

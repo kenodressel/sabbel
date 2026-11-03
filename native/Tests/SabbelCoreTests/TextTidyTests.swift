@@ -36,6 +36,9 @@ import Testing
         #expect(tidy("Wir treffen uns um 5 Uhr.") == "Wir treffen uns um 5 Uhr.")
         #expect(tidy("Ich gehe, um zu gehen.") == "Ich gehe, um zu gehen.")
         #expect(tidy("Er kam um zu gehen") == "Er kam um zu gehen")
+        // A hesitation right after the preposition keeps the preposition.
+        #expect(tidy("Es geht um, äh, die Planung.") == "Es geht um die Planung.")
+        #expect(tidy("Es geht um. Danke.") == "Es geht um. Danke.")
     }
 
     @Test func caseInsensitiveWholeWordsOnly() {
