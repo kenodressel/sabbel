@@ -11,25 +11,11 @@ PROJECT_DIR = $(shell pwd)
 INSTALL_APP_DIR = $(HOME)/Applications/Sabbel.app
 LAUNCH_DOMAIN = gui/$(shell id -u)
 LAUNCH_SERVICE = $(LAUNCH_DOMAIN)/$(PLIST_NAME)
-# The interpreter that runs py2app. CI overrides it with the framework Python
-# it installed into .venv; a bundle is only standalone when built from one.
-BUILD_PYTHON ?= uv run --extra build python
 # "dev" or a tag without its "v"; becomes SabbelVersion in Info.plist.
 VERSION ?= dev
 
-.PHONY: run test test-model test-python build-app build-app-python install-app reinstall-app ensure-app-installed autostart autostart-remove stop restart status download-model clean native-build native-test native-test-model eval help
+.PHONY: build test test-model test-e2e build-app install-app reset-permissions ensure-app-installed autostart autostart-remove stop restart status download-model clean eval help
 
-run: ## Start Sabbel (foreground)
-	uv run sabbel
-
-test: native-test test-python ## Run the native tests and (until Task 14) the Python suite
-
-test-python: ## Run the Python unit tests (mocked MLX, ~1s)
-	uv run --extra dev pytest -q
-
-test-model: native-test-model ## Run the real-model tests against Parakeet (slow)
-
-.PHONY: test-e2e
 test-e2e: build-app ## End-to-end check on this Mac: real app, model and paste (hands off ~30s; the terminal needs Accessibility)
 	dist/Sabbel.app/Contents/MacOS/Sabbel --e2e
 
@@ -47,47 +33,7 @@ icons/Sabbel.icns: icons/sabbel-icon.png ## Generate app icon from sabbel-icon.p
 	@sips -z 16 16 icons/sabbel-icon.png --out build/Sabbel.iconset/icon_16x16.png >/dev/null
 	@iconutil -c icns build/Sabbel.iconset -o icons/Sabbel.icns
 
-build-app-python: icons/Sabbel.icns ## Build the legacy Python Sabbel.app with py2app (removed in Task 14)
-	@rm -rf build dist
-	$(BUILD_PYTHON) setup.py py2app
-	@# mlx.metallib is a Metal shader archive (not Mach-O), so py2app's
-	@# frameworks option cannot process it.  Copy it manually next to
-	@# libmlx.dylib where MLX expects to find it.
-	@METALLIB=$$(find .venv -name "mlx.metallib" -type f 2>/dev/null | head -1); \
-		if [ -n "$$METALLIB" ]; then \
-			cp "$$METALLIB" dist/Sabbel.app/Contents/Frameworks/mlx.metallib; \
-			echo "✓ Copied mlx.metallib into Frameworks"; \
-		fi
-	@# mlx is a namespace package (no __init__.py) so py2app only bundles
-	@# core.so via import analysis.  Copy the full mlx Python package and
-	@# remove the incomplete stubs from the zip so the filesystem copy
-	@# takes precedence at runtime.
-	@MLX_PKG=$$(find .venv -type d -name "mlx" -path "*/site-packages/mlx" | head -1); \
-		if [ -n "$$MLX_PKG" ]; then \
-			PYVER=$$(ls dist/Sabbel.app/Contents/Resources/lib/ | grep python3 | grep -v zip | head -1); \
-			DEST=dist/Sabbel.app/Contents/Resources/lib/$$PYVER/mlx; \
-			mkdir -p "$$DEST"; \
-			cp -R "$$MLX_PKG"/* "$$DEST"/; \
-			echo "✓ Copied mlx package into bundle"; \
-		fi
-	@ZIPFILE=$$(find dist/Sabbel.app/Contents/Resources/lib -name "python3*.zip" | head -1); \
-		if [ -n "$$ZIPFILE" ]; then \
-			python3 -c "import zipfile,shutil; src='$$ZIPFILE'; tmp=src+'.tmp'; zi=zipfile.ZipFile(src,'r'); zo=zipfile.ZipFile(tmp,'w'); [zo.writestr(i,zi.read(i.filename)) for i in zi.infolist() if not i.filename.startswith('mlx/')]; zi.close(); zo.close(); shutil.move(tmp,src)"; \
-			echo "✓ Removed mlx stubs from zip"; \
-		fi
-	@# Fix mlx/core.so rpath: py2app rewrites libmlx.dylib's install name
-	@# to @executable_path/../Frameworks/libmlx.dylib, but core.so still
-	@# has @rpath/libmlx.dylib with rpath=@loader_path/lib.  Add the
-	@# Frameworks dir so @rpath resolution finds the bundled dylib.
-	@CORE_SO=$$(find dist/Sabbel.app -name "core.so" -path "*/mlx/*" 2>/dev/null | head -1); \
-		if [ -n "$$CORE_SO" ]; then \
-			install_name_tool -add_rpath @executable_path/../Frameworks "$$CORE_SO" 2>/dev/null || true; \
-			codesign --force --sign - "$$CORE_SO" 2>/dev/null || true; \
-			echo "✓ Fixed mlx/core.so rpath"; \
-		fi
-	@echo "✓ Built dist/Sabbel.app"
-
-build-app: native-build icons/Sabbel.icns ## Build and sign dist/Sabbel.app (Swift); VERSION=1.2.3, SABBEL_SIGN_IDENTITY=...
+build-app: build icons/Sabbel.icns ## Build and sign dist/Sabbel.app (Swift); VERSION=1.2.3, SABBEL_SIGN_IDENTITY=...
 	@scripts/bundle_app.sh $(VERSION)
 
 # Permissions are reset only when the installed app's signature differs from
@@ -132,7 +78,7 @@ autostart: ensure-app-installed ## Set up Sabbel to start on login
 	@echo "✓ Sabbel will start on login and is running now."
 	@echo "  Stop:    make stop"
 	@echo "  Restart: make restart"
-	@echo "  Reinstall after bundle changes: make reinstall-app"
+	@echo "  Reinstall after changes: make install-app"
 	@echo "  Remove:  make autostart-remove"
 
 autostart-remove: stop ## Remove auto-start on login
@@ -175,15 +121,15 @@ clean: ## Remove all build artifacts (forces full rebuild)
 	@rm -rf build dist
 	@echo "✓ Build cache cleared."
 
-native-build: ## Build the native Swift package (release)
+build: ## Build the native Swift package (release)
 	$(SWIFT) build --package-path native -c release
 
-native-test: ## Run the native Swift tests, the eval-scorer check and the installer's permission test
+test: ## Run the native Swift tests, the eval-scorer check and the installer's permission test
 	python3 -I scripts/test_eval_score.py
 	sh scripts/test_install_tcc.sh
 	$(SWIFT) test --package-path native
 
-native-test-model: ## Run the native tests against the real Parakeet model (slow, needs the model and the Anna voice)
+test-model: ## Run the native tests against the real Parakeet model (slow, needs the model and the Anna voice)
 	SABBEL_MODEL_TESTS=1 $(SWIFT) test --package-path native --filter SabbelEngineTests
 
 # Accuracy gate over private meeting clips. Prints only the score table; every
@@ -203,4 +149,4 @@ eval: ## Score full vs stream (clips and long takes) over $$SABBEL_EVAL_DIR
 		for n in 60 300; do python3 -I scripts/eval_score.py "$$R/long/refs-long$$n.json" "$$R/full-long$$n.jsonl" "$$R/stream-long$$n.jsonl" | tail -n +2; done
 
 help: ## Show this help
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'

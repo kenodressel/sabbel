@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Run native tests
-        run: make native-test
+        run: make test
 
       # The Parakeet v3 CoreML models (~0.5 GB) are cached so only the first run
       # (or a FluidAudio bump, which changes Package.resolved) downloads them.
@@ -31,7 +31,7 @@ jobs:
           key: parakeet-models-${{ hashFiles('native/Package.resolved') }}
 
       - name: Run native model tests
-        run: make native-test-model
+        run: make test-model
         timeout-minutes: 20
 
       - name: Import signing certificate

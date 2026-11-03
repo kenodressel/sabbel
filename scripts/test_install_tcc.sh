@@ -2,7 +2,7 @@
 # Tests install.sh's decision to reset the TCC grants (Accessibility,
 # Microphone) on an update, against verbatim `codesign` output captured on a
 # Mac (scripts/fixtures/codesign/, only paths changed). Run by
-# `make native-test`.
+# `make test`.
 #
 # It never touches the real TCC database: `codesign` and `tccutil` are stubs
 # first on PATH, and the test refuses to run when they are not.
