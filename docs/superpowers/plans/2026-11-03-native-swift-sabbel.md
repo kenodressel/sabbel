@@ -56,7 +56,7 @@ The Makefile assembles, signs and installs `Sabbel.app`, and stays the only buil
 
 ## Review Focus
 
-1. **The live panel is open when the user presses the hotkey.** The text must still go to the app the user was typing in, never into Sabbel. The panel is a non-activating `NSPanel`, and the coordinator refuses a focus target whose pid is Sabbel's own (the take is treated as having no text field). Tests: Task 10 `ownPidTargetIsNeverPastedInto`, Task 13 e2e check "live panel open".
+1. **The live panel is open when the user presses the hotkey.** The text must still go to the app the user was typing in, never into Sabbel. The panel is a non-activating `NSPanel`, and the coordinator drops a focus target whose pid is Sabbel's own, so the take has no target and the injector judges whatever is frontmost at paste time. If that is still Sabbel (e.g. the user clicked its notification banner), the injector does not paste: the outcome is `.leftInClipboard`, the text stays on the clipboard with the `textCopiedNoField` notice, and history is saved as for that outcome. Tests: Task 10 `ownPidTargetIsNeverPastedInto` and `sabbelFrontmostAtPasteLeavesTextInClipboard`, Injector `sabbelFrontmostAtPasteLeavesTextInClipboard`, Task 13 e2e check "live panel open".
 2. **A second take starts while the first is still finishing.** Takes are pasted in order, each into its own target, with independent streaming state. Test: Task 10 `overlappingTakesPasteInOrderToOwnTargets`.
 3. **The mic disappears or errors mid-take** (AirPods disconnect, dock unplugged). The take ends with the audio captured so far, the UI goes back to idle, and nothing hangs. A start failure shows "Mic error". Test: Task 10 `micStartFailureShowsMicError` and `captureEndingEarlyStillFinishesTake`.
 4. **A 10-minute take.** Kept audio and per-pass compute stay bounded by the window, never by the take length. Test: Task 7 `longTakeKeepsBoundedAudio`.
@@ -670,7 +670,7 @@ The app's behaviour lives here, as a port of `SabbelApp`, testable with fakes.
 ### Task 12: Bundle, signing, install, release workflow
 
 **Files:**
-- Create: `native/Resources/Info.plist`, `native/Resources/Sabbel.entitlements` (empty dict: the app is not sandboxed and not hardened, because there is no notarization), `scripts/bundle_app.sh`
+- Create: `native/Resources/Info.plist`, `scripts/bundle_app.sh` (no entitlements file: the app is not sandboxed and not hardened, because there is no notarization)
 - Modify: `Makefile`, `install.sh`, `.github/workflows/release.yml`, `.github/workflows/ci.yml`, `README.md`
 
 **Interfaces:**
@@ -685,8 +685,8 @@ The app's behaviour lives here, as a port of `SabbelApp`, testable with fakes.
   - Then `codesign --force --deep --sign "$IDENTITY"`, then `codesign --verify --deep --strict`.
   - Info.plist: `LSUIElement` true, `LSMinimumSystemVersion` `14.0`, and the `NSMicrophoneUsageDescription` copied from `setup.py`.
 - [ ] **Step 2: Repoint the Makefile targets to the native build:** `build-app`, `install-app`, `test`, `test-model` and `download-model`. `test` runs `native-test` plus the Python suite until Task 14.
-  - `install-app` and `install.sh` lose their `tccutil reset` lines; only `reset-permissions` keeps them.
-  - `install.sh`'s closing message no longer promises a permission prompt.
+  - `install-app` and `install.sh` reset the TCC grants only when the installed app is ad hoc signed or its designated requirement differs from the new app's (ruling R31, see the spec); `reset-permissions` still resets by hand.
+  - `install.sh`'s closing message says whether the permissions were kept or reset.
   - `stop`, `restart`, `status`, `autostart` and `autostart-remove` are unchanged.
 - [ ] **Step 3: Verify that the bundle is standalone.** Run:
   ```bash
