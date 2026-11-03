@@ -30,21 +30,22 @@ BUNDLE_ID="com.sabbel.app"
 # SABBEL_INSTALL_LIB=1 (as does scripts/test_install_tcc.sh).
 # ---------------------------------------------------------------------------
 
-# Exit 0 when the grants must be reset, 1 when they can be kept.
-#   $1  `codesign -dv` output (stderr) of the installed app
-#   $2  `codesign -d -r-` output of the installed app
-#   $3  `codesign -d -r-` output of the new app
+# Exit 0 when the grants must be reset, 1 when they can be kept. Decided on
+# the designated requirement alone (`codesign -d -r-`): it is what TCC
+# matches, and an ad-hoc app's is always a `cdhash` (new with every build).
+# Reset when the installed app's requirement is missing (unsigned or
+# unreadable), is a cdhash, or differs from the new app's.
+#   $1  `codesign -d -r-` output of the installed app
+#   $2  `codesign -d -r-` output of the new app
 sabbel_needs_tcc_reset() {
-  case "$1" in
-    *Signature=adhoc*) return 0 ;;
-    *Authority=*) ;;
-    *) return 0 ;;  # unsigned or unreadable
-  esac
   # Compare only the requirement: the Executable= line names each app's path.
   # Ad-hoc output prints it as a comment ("# designated => cdhash ...").
-  _sabbel_old_dr="$(printf '%s\n' "$2" | sed -n 's/^#* *designated => //p')"
-  _sabbel_new_dr="$(printf '%s\n' "$3" | sed -n 's/^#* *designated => //p')"
-  if [ -n "${_sabbel_old_dr}" ] && [ "${_sabbel_old_dr}" = "${_sabbel_new_dr}" ]; then
+  _sabbel_old_dr="$(printf '%s\n' "$1" | sed -n 's/^#* *designated => //p')"
+  _sabbel_new_dr="$(printf '%s\n' "$2" | sed -n 's/^#* *designated => //p')"
+  case "${_sabbel_old_dr}" in
+    ''|cdhash*) return 0 ;;
+  esac
+  if [ "${_sabbel_old_dr}" = "${_sabbel_new_dr}" ]; then
     return 1
   fi
   return 0
@@ -53,7 +54,6 @@ sabbel_needs_tcc_reset() {
 # Exit 0 when replacing the installed app $1 with the new app $2 needs a reset.
 sabbel_tcc_reset_needed() {
   sabbel_needs_tcc_reset \
-    "$(codesign -dv "$1" 2>&1 || true)" \
     "$(codesign -d -r- "$1" 2>&1 || true)" \
     "$(codesign -d -r- "$2" 2>&1 || true)"
 }

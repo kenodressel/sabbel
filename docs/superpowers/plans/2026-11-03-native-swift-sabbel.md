@@ -681,11 +681,11 @@ The app's behaviour lives here, as a port of `SabbelApp`, testable with fakes.
 
 - [ ] **Step 1: Write `scripts/bundle_app.sh`.**
   - It assembles `Contents/MacOS/Sabbel`, `Contents/Info.plist` (from the template, with the version substituted) and `Contents/Resources/Sabbel.icns` (the existing `icons/Sabbel.icns` target).
-  - It copies every `*.bundle` resource bundle and every dynamic framework that `swift build` produced, placed where `Bundle.module` and `@rpath` find them inside the app.
+  - It copies every dynamic framework that `swift build` produced into `Contents/Frameworks`, where `@rpath` finds it. SwiftPM `*.bundle` resource bundles are not shipped: an executable's `Bundle.module` never looks inside `Contents/Resources`, and the only one (FluidAudio's LuxTTS G2P resources) is unused on the ASR path.
   - Then `codesign --force --deep --sign "$IDENTITY"`, then `codesign --verify --deep --strict`.
   - Info.plist: `LSUIElement` true, `LSMinimumSystemVersion` `14.0`, and the `NSMicrophoneUsageDescription` copied from `setup.py`.
 - [ ] **Step 2: Repoint the Makefile targets to the native build:** `build-app`, `install-app`, `test`, `test-model` and `download-model`. `test` runs `native-test` plus the Python suite until Task 14.
-  - `install-app` and `install.sh` reset the TCC grants only when the installed app is ad hoc signed or its designated requirement differs from the new app's (ruling R31, see the spec); `reset-permissions` still resets by hand.
+  - `install-app` and `install.sh` reset the TCC grants only when the installed app's designated requirement is missing, a `cdhash` (ad hoc) or different from the new app's (ruling R31, see the spec); `reset-permissions` still resets by hand.
   - `install.sh`'s closing message says whether the permissions were kept or reset.
   - `stop`, `restart`, `status`, `autostart` and `autostart-remove` are unchanged.
 - [ ] **Step 3: Verify that the bundle is standalone.** Run:
@@ -704,7 +704,7 @@ The app's behaviour lives here, as a port of `SabbelApp`, testable with fakes.
     - `security set-key-partition-list` for codesign;
     - export `SABBEL_SIGN_IDENTITY="Sabbel Release"`.
   - Build `make build-app VERSION=${GITHUB_REF_NAME#v}`.
-  - A step "Refuse ad-hoc signature": `codesign -dv dist/Sabbel.app 2>&1 | grep -q "Authority=Sabbel Release"`, on tags only.
+  - A step "Refuse ad-hoc signature": `codesign -dvv dist/Sabbel.app 2>&1 | grep -q "Authority=Sabbel Release"` (`-dvv`: plain `-dv` prints no `Authority=` lines), on tags only.
   - Zip and publish with `prerelease: ${{ contains(github.ref_name, '-') }}`.
   - A step that always runs and deletes the keychain.
   - A `workflow_dispatch` run builds ad hoc and never publishes.

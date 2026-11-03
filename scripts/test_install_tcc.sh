@@ -1,6 +1,7 @@
 #!/bin/sh
 # Tests install.sh's decision to reset the TCC grants (Accessibility,
-# Microphone) on an update, with canned `codesign` output. Run by
+# Microphone) on an update, against verbatim `codesign` output captured on a
+# Mac (scripts/fixtures/codesign/, only paths changed). Run by
 # `make native-test`.
 #
 # It never touches the real TCC database: `codesign` and `tccutil` are stubs
@@ -8,6 +9,7 @@
 set -eu
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+FIXTURES="$ROOT/scripts/fixtures/codesign"
 FAILS=0
 pass() { printf 'ok - %s\n' "$1"; }
 fail() { printf 'FAIL - %s\n' "$1"; FAILS=$((FAILS + 1)); }
@@ -24,15 +26,19 @@ cat > "$STUBS/tccutil" <<EOF
 #!/bin/sh
 printf '%s\n' "\$*" >> "$STUBS/tccutil.calls"
 EOF
-# codesign prints the canned output stored in the fake app directory:
-# <app>/dv for `codesign -dv <app>`, <app>/dr for `codesign -d -r- <app>`.
+# codesign replays a capture: an "app" is a fixture directory holding the
+# output of `-dv` (dv), `-dvv` (dvv) and `-d -r-` (dr), and the exit status (rc).
+# Like codesign, it writes to stderr.
 cat > "$STUBS/codesign" <<'EOF'
 #!/bin/sh
 case "$1" in
-  -dv) cat "$2/dv" >&2 ;;
-  -d) cat "$3/dr" ;;
+  -dv) app="$2"; out=dv ;;
+  -dvv) app="$2"; out=dvv ;;
+  -d) app="$3"; out=dr ;;
   *) echo "unexpected codesign call: $*" >&2; exit 2 ;;
 esac
+cat "$app/$out" >&2
+exit "$(cat "$app/rc")"
 EOF
 chmod +x "$STUBS/tccutil" "$STUBS/codesign"
 # Everything else the installer runs must never be reached when it is sourced.
@@ -57,49 +63,43 @@ export SABBEL_INSTALL_LIB
 # shellcheck source=../install.sh
 . "$ROOT/install.sh"
 
-# Canned codesign output.
-DV_RELEASE='Executable=/x/Sabbel.app/Contents/MacOS/Sabbel
-Identifier=com.sabbel.app
-Signature size=1234
-Authority=Sabbel Release
-TeamIdentifier=not set'
-DV_ADHOC='Executable=/x/Sabbel.app/Contents/MacOS/Sabbel
-Identifier=com.sabbel.app
-CodeDirectory v=20400 size=40871 flags=0x2(adhoc) hashes=1271+3 location=embedded
-Signature=adhoc
-TeamIdentifier=not set'
-DV_UNSIGNED='/x/Sabbel.app: code object is not signed at all'
-DR_RELEASE='Executable=/old/path/Sabbel.app/Contents/MacOS/Sabbel
-designated => identifier "com.sabbel.app" and certificate leaf = H"1111111111111111111111111111111111111111"'
-DR_RELEASE_NEW_PATH='Executable=/tmp/new/Sabbel.app/Contents/MacOS/Sabbel
-designated => identifier "com.sabbel.app" and certificate leaf = H"1111111111111111111111111111111111111111"'
-DR_OTHER_CERT='Executable=/tmp/new/Sabbel.app/Contents/MacOS/Sabbel
-designated => identifier "com.sabbel.app" and certificate leaf = H"2222222222222222222222222222222222222222"'
-DR_ADHOC='Executable=/tmp/new/Sabbel.app/Contents/MacOS/Sabbel
-# designated => cdhash H"f776e056d453cfa7c0896ffd638fc090d44f77df"'
+# Fixtures (see scripts/fixtures/codesign/):
+#   adhoc     dist/Sabbel.app from `make build-app` without the certificate
+#   signed    a certificate-signed app (Developer ID; a "Sabbel Release" app
+#             has the same shape, with `certificate leaf = H"..."`)
+#   other     an app signed by another certificate
+#   unsigned  an app with no signature
+# signed-new is "signed" unpacked elsewhere (the installer's temp dir): same
+# signature, different Executable= path.
+cp -R "$FIXTURES/signed" "$STUBS/signed-new"
+sed 's|^Executable=/Applications/|Executable=/tmp/tmp.XXXX/|' "$FIXTURES/signed/dr" > "$STUBS/signed-new/dr"
+app() { [ "$1" = signed-new ] && echo "$STUBS/signed-new" || echo "$FIXTURES/$1"; }
 
-# expect_reset DESCRIPTION 0|1 OLD_DV OLD_DR NEW_DR   (0: reset, 1: keep)
+# expect DESCRIPTION reset|keep INSTALLED NEW
 expect() {
-  desc="$1"; want="$2"; shift 2
-  if sabbel_needs_tcc_reset "$@"; then got=0; else got=1; fi
-  [ "$got" = "$want" ] && pass "$desc" || fail "$desc (got $got, want $want)"
+  if sabbel_tcc_reset_needed "$(app "$3")" "$(app "$4")"; then got=reset; else got=keep; fi
+  [ "$got" = "$2" ] && pass "$1" || fail "$1 (got $got, want $2)"
 }
 
-expect "Sabbel Release -> Sabbel Release keeps the grants" 1 "$DV_RELEASE" "$DR_RELEASE" "$DR_RELEASE_NEW_PATH"
-expect "an ad-hoc installed app is reset" 0 "$DV_ADHOC" "$DR_ADHOC" "$DR_RELEASE"
-expect "an unsigned installed app is reset" 0 "$DV_UNSIGNED" "" "$DR_RELEASE"
-expect "a different certificate is reset" 0 "$DV_RELEASE" "$DR_RELEASE" "$DR_OTHER_CERT"
-expect "a signed app replaced by an ad-hoc build is reset" 0 "$DV_RELEASE" "$DR_RELEASE" "$DR_ADHOC"
-expect "an unreadable designated requirement is reset" 0 "$DV_RELEASE" "" "$DR_RELEASE"
+expect "the same certificate signature keeps the grants" keep signed signed-new
+expect "an ad-hoc installed app is reset" reset adhoc signed-new
+expect "an ad-hoc app replaced by the same ad-hoc build is still reset" reset adhoc adhoc
+expect "an unsigned installed app is reset" reset unsigned signed-new
+expect "a different certificate is reset" reset signed other
+expect "a signed app replaced by an ad-hoc build is reset" reset signed adhoc
+expect "an unreadable new app is reset" reset signed unsigned
 
-# The wrapper reads both apps through codesign and resets through tccutil.
-OLD="$STUBS/old.app"; NEW="$STUBS/new.app"
-mkdir -p "$OLD" "$NEW"
-printf '%s\n' "$DV_RELEASE" > "$OLD/dv"; printf '%s\n' "$DR_RELEASE" > "$OLD/dr"
-printf '%s\n' "$DR_RELEASE_NEW_PATH" > "$NEW/dr"
-if sabbel_tcc_reset_needed "$OLD" "$NEW"; then fail "wrapper keeps the grants for the same signature"; else pass "wrapper keeps the grants for the same signature"; fi
-printf '%s\n' "$DR_OTHER_CERT" > "$NEW/dr"
-if sabbel_tcc_reset_needed "$OLD" "$NEW"; then pass "wrapper resets for another certificate"; else fail "wrapper resets for another certificate"; fi
+# The release workflow's ad-hoc refusal must read -dvv: real -dv output has no
+# Authority= lines at all.
+grep -q '^Authority=' "$FIXTURES/signed/dv" \
+  && fail "-dv capture unexpectedly has Authority= lines" \
+  || pass "-dv prints no Authority= line"
+grep -q '^Authority=Developer ID Application: ' "$FIXTURES/signed/dvv" \
+  && pass "-dvv prints the leaf certificate as an Authority= line" \
+  || fail "-dvv prints the leaf certificate as an Authority= line"
+grep -q 'codesign -dvv dist/Sabbel.app 2>&1 | grep -q "Authority=Sabbel Release"' "$ROOT/.github/workflows/release.yml" \
+  && pass "release.yml reads the signing authority with -dvv" \
+  || fail "release.yml reads the signing authority with -dvv"
 
 sabbel_reset_tcc
 EXPECTED='reset Accessibility com.sabbel.app

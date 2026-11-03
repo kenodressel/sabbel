@@ -1,0 +1,11 @@
+Executable=/Applications/Caffeine.app/Contents/MacOS/Caffeine
+Identifier=com.intelliscapesolutions.caffeine
+Format=app bundle with Mach-O universal (x86_64 arm64)
+CodeDirectory v=20500 size=942 flags=0x10000(runtime) hashes=18+7 location=embedded
+Signature size=8930
+Timestamp=22. Sep 2025 at 00:28:38
+Info.plist entries=28
+TeamIdentifier=YD6LEYT6WZ
+Runtime Version=15.2.0
+Sealed Resources version=2 rules=13 files=16
+Internal requirements count=1 size=228

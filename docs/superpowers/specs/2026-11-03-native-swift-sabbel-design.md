@@ -300,11 +300,13 @@ modules explain why, and the Swift version keeps those reasons.
   to keep. Dropping the reset entirely left upgraders from an ad-hoc 0.5.x
   build with grants that look on but are denied. So `install.sh` and
   `make install-app` reset Accessibility and Microphone for `com.sabbel.app`
-  only when the installed app is ad hoc signed (`codesign -dv` shows
-  `Signature=adhoc` or no `Authority`) or its designated requirement
-  (`codesign -d -r-`) differs from the new app's. A "Sabbel Release" →
-  "Sabbel Release" update keeps the grants. The decision is one POSIX sh
-  function in `install.sh`, tested with stubbed `codesign` output by
+  only when the installed app's designated requirement (`codesign -d -r-`)
+  is missing (unsigned), is a `cdhash` (ad hoc signed: new with every
+  build), or differs from the new app's. The requirement alone decides:
+  `codesign -dv` prints no `Authority=` lines (only `-dvv` does). A
+  "Sabbel Release" → "Sabbel Release" update keeps the grants. The decision
+  is one POSIX sh function in `install.sh`, tested against verbatim
+  `codesign` captures (`scripts/fixtures/codesign/`) by
   `scripts/test_install_tcc.sh` (part of `make native-test`).
   `make reset-permissions` still resets by hand.
 - **Local builds** from `make install-app` are signed with "Sabbel Release"

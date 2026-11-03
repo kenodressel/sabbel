@@ -1,0 +1,15 @@
+Executable=/Applications/AltTab.app/Contents/MacOS/AltTab
+Identifier=com.lwouis.alt-tab-macos
+Format=app bundle with Mach-O universal (x86_64 arm64)
+CodeDirectory v=20500 size=30180 flags=0x10000(runtime) hashes=932+7 location=embedded
+Signature size=9049
+Authority=Developer ID Application: Louis Pontoise (QXD7GW8FHY)
+Authority=Developer ID Certification Authority
+Authority=Apple Root CA
+Timestamp=5. Sep 2026 at 21:26:27
+Notarization Ticket=stapled
+Info.plist entries=35
+TeamIdentifier=QXD7GW8FHY
+Runtime Version=26.0.0
+Sealed Resources version=2 rules=13 files=90
+Internal requirements count=1 size=216

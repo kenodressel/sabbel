@@ -74,8 +74,9 @@ jobs:
       - name: Refuse ad-hoc signature
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         run: |
-          codesign -dv dist/Sabbel.app 2>&1 | grep -q "Authority=Sabbel Release" \
-            || { echo "✗ dist/Sabbel.app is not signed by Sabbel Release"; codesign -dv dist/Sabbel.app 2>&1; exit 1; }
+          # Authority= lines appear only at -dvv; plain -dv never prints them.
+          codesign -dvv dist/Sabbel.app 2>&1 | grep -q "Authority=Sabbel Release" \
+            || { echo "✗ dist/Sabbel.app is not signed by Sabbel Release"; codesign -dvv dist/Sabbel.app 2>&1; exit 1; }
           echo "✓ Signed by Sabbel Release"
 
       - name: Verify bundle is standalone

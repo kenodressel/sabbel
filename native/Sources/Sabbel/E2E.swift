@@ -458,14 +458,14 @@ import SabbelSystem
     }
 }
 
-/// The coordinator's UI in the e2e run: the real menu bar and live panel, with
-/// every status recorded. Notices are recorded instead of posted: a notice is
-/// itself a result worth checking, and banners would pile up on every run.
 /// The model-load progress state, owned by the main actor.
 @MainActor final class LoadProgressBox {
     var value = ModelLoadProgress()
 }
 
+/// The coordinator's UI in the e2e run: the real menu bar and live panel, with
+/// every status recorded. Notices are recorded instead of posted: a notice is
+/// itself a result worth checking, and banners would pile up on every run.
 @MainActor final class RecordingUI: SabbelUI {
     private let menuBar: MenuBar
     weak var coordinator: TakeCoordinator?
