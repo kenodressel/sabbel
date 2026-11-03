@@ -51,7 +51,11 @@ public final class SystemPasteEnvironment: PasteEnvironment, @unchecked Sendable
 
     public func focusedValue() -> String? {
         guard let element = focusedUIElement() else { return nil }
-        return stringAttribute(element, kAXValueAttribute)
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &value) == .success,
+              let value else { return nil }
+        // Python's str(value) for non-string values.
+        return (value as? String) ?? String(describing: value)
     }
 
     // MARK: modifiers

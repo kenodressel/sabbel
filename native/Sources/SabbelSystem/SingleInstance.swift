@@ -15,7 +15,7 @@ public final class SingleInstanceLock {
         if fd >= 0 { return true }
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         // No O_TRUNC: truncating before the lock is won would wipe the holder's pid.
-        let newFD = open(url.path, O_WRONLY | O_CREAT, 0o644)
+        let newFD = open(url.path, O_WRONLY | O_CREAT | O_CLOEXEC, 0o644)
         guard newFD >= 0 else { return false }
         guard flock(newFD, LOCK_EX | LOCK_NB) == 0 else {
             close(newFD)

@@ -13,4 +13,14 @@ import Testing
         #expect(second.acquire())
         second.release()
     }
+
+    @Test func writesPid() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("sabbel-lock-\(UUID()).lock")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let lock = SingleInstanceLock(url: url)
+        #expect(lock.acquire())
+        let text = try String(contentsOf: url, encoding: .utf8)
+        #expect(text == "\(getpid())\n")
+        lock.release()
+    }
 }

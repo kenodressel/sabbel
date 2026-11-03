@@ -15,11 +15,18 @@ public enum HotkeyEventMapper {
         }
     }
 
+    /// Whether the flag belonging to `keyCode` is set in `flags`.
+    public static func isModifierDown(keyCode: UInt16, flags: CGEventFlags) -> Bool {
+        guard let f = flag(forKeyCode: keyCode) else { return false }
+        return flags.contains(f)
+    }
+
     /// Pure mapping of one CGEvent's fields to the state machine's input.
     /// `hotkeyIsDown` carries modifier state across flagsChanged events.
     public static func map(type: CGEventType, keyCode: UInt16, flags: CGEventFlags, isSynthetic: Bool,
                            spec: HotkeySpec, hotkeyIsDown: inout Bool) -> KeyInput? {
-        // Our own synthetic Cmd+V must not look like typing.
+        // Events posted by another process (our own Cmd+V, text expanders, automation) must not
+        // look like typing. The tap computes this like pynput's `injected`: source unix pid != 0.
         if isSynthetic { return nil }
         switch type {
         case .flagsChanged:
@@ -60,6 +67,8 @@ public final class HotkeyTap: @unchecked Sendable {
         self.log = log
         self.onInput = onInput
     }
+
+    deinit { stop() }
 
     /// False if the tap can't be created (no permission).
     public func start() -> Bool {
@@ -121,9 +130,15 @@ public final class HotkeyTap: @unchecked Sendable {
             let port = tap
             lock.unlock()
             if let port { CGEvent.tapEnable(tap: port, enable: true) }
+            // Events were missed while disabled; re-sync the modifier state so a lost release doesn't cost the next press.
+            if spec.isModifier {
+                let down = HotkeyEventMapper.isModifierDown(keyCode: spec.keyCode, flags: CGEventSource.flagsState(.combinedSessionState))
+                hotkeyIsDown = down
+                log("Hotkey tap re-synced: modifier \(down ? "down" : "up")")
+            }
             return
         }
-        let synthetic = event.getIntegerValueField(.eventSourceStateID) != Int64(CGEventSourceStateID.hidSystemState.rawValue)
+        let synthetic = event.getIntegerValueField(.eventSourceUnixProcessID) != 0
         // The tap callback runs on a single run-loop thread, so hotkeyIsDown needs no lock.
         guard let input = HotkeyEventMapper.map(
             type: type, keyCode: UInt16(truncatingIfNeeded: event.getIntegerValueField(.keyboardEventKeycode)),

@@ -58,4 +58,23 @@ import SabbelCore
         var d2 = false
         #expect(map(.flagsChanged, 54, .maskAlternate, spec: cmdR, down: &d2) == .hotkeyUp)
     }
+
+    @Test func autoRepeatPassesThrough() {
+        var down = false
+        #expect(map(.keyDown, 96, spec: f5, down: &down) == .hotkeyDown)
+        #expect(map(.keyDown, 96, spec: f5, down: &down) == .hotkeyDown)
+    }
+
+    @Test func capsLockMapping() {
+        let caps = HotkeySpec.parse("caps_lock")!
+        var down = false
+        #expect(map(.flagsChanged, 57, .maskAlphaShift, spec: caps, down: &down) == .hotkeyDown)
+        #expect(map(.flagsChanged, 57, [], spec: caps, down: &down) == .hotkeyUp)
+    }
+
+    @Test func isModifierDown() {
+        #expect(HotkeyEventMapper.isModifierDown(keyCode: 61, flags: .maskAlternate))
+        #expect(!HotkeyEventMapper.isModifierDown(keyCode: 61, flags: .maskCommand))
+        #expect(!HotkeyEventMapper.isModifierDown(keyCode: 96, flags: .maskAlternate))
+    }
 }
