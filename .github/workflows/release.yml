@@ -4,8 +4,8 @@ on:
   push:
     tags:
       - "v*"
-  # Build-only dry run: verifies the bundle without publishing anything.
-  # The publish step below is gated on an actual tag.
+  # Build-only dry run: builds and verifies the bundle (ad hoc signed) without
+  # publishing anything. Signing and publishing are gated on a tag *push*.
   workflow_dispatch:
 
 permissions:
@@ -13,86 +13,97 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-14  # Apple Silicon M1
+    runs-on: macos-15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install Python from python.org
-        run: |
-          curl -fsSL https://www.python.org/ftp/python/3.13.3/python-3.13.3-macos11.pkg -o /tmp/python.pkg
-          sudo installer -pkg /tmp/python.pkg -target /
-          echo "/Library/Frameworks/Python.framework/Versions/3.13/bin" >> $GITHUB_PATH
+      - name: Run native tests
+        run: make test
 
-      - name: Install uv
-        # setup-uv publishes no major tags since v8 — pin the exact release.
-        uses: astral-sh/setup-uv@v10.2.0
-
-      - name: Install dependencies
-        run: |
-          # --frozen, not pip: pip resolves fresh and happily picks up an MLX
-          # the suite has never run against. That is how mlx 0.32 (per-thread
-          # streams) reached a release build while uv.lock still said 0.31.
-          FWPYTHON=/Library/Frameworks/Python.framework/Versions/3.13/bin/python3.13
-          uv sync --frozen --python "$FWPYTHON" --extra build --extra dev
-
-      - name: Set version from tag
-        # A dry run has no tag: GITHUB_REF_NAME is then the branch name, and a
-        # "/" in it broke the sed below. Left at "dev", setup.py builds 0.0.0.
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-          sed -i '' "s/__version__ = \"dev\"/__version__ = \"$VERSION\"/" sabbel/__init__.py
-          grep -q "__version__ = \"$VERSION\"" sabbel/__init__.py \
-            || { echo "✗ Failed to set version in sabbel/__init__.py"; exit 1; }
-          echo "✓ Version set to $VERSION (setup.py reads this at build time)"
-
-      - name: Run tests
-        run: .venv/bin/python -m pytest tests/ -v
-
-      - name: Cache the Parakeet model
+      # The Parakeet v3 CoreML models (~0.5 GB) are cached so only the first run
+      # (or a FluidAudio bump, which changes Package.resolved) downloads them.
+      - name: Cache Parakeet models
         uses: actions/cache@v6
         with:
-          path: ~/.cache/huggingface/hub
-          key: hf-${{ hashFiles('sabbel/transcriber.py') }}
-          restore-keys: hf-
+          path: ~/Library/Application Support/FluidAudio/Models
+          key: parakeet-models-${{ hashFiles('native/Package.resolved') }}
 
-      - name: Run real-model tests
-        # The mocked suite above cannot see MLX itself: thread-owned streams
-        # (v0.4.x transcribed nothing) and the buffer cache that grew ~0.5 GB
-        # per dictation (v0.5.0) both shipped past it.
-        run: .venv/bin/python -m pytest -m model -v
+      - name: Run native model tests
+        run: make test-model
+        timeout-minutes: 20
+
+      - name: Import signing certificate
+        # A tag push only. A dry run builds ad hoc, so a branch can never produce
+        # something that looks like a release; the event check keeps a manual
+        # dispatch run on a tag ref a dry run too.
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        env:
+          SABBEL_SIGN_P12: ${{ secrets.SABBEL_SIGN_P12 }}
+          SABBEL_SIGN_P12_PASSWORD: ${{ secrets.SABBEL_SIGN_P12_PASSWORD }}
+        run: |
+          [ -n "$SABBEL_SIGN_P12" ] && [ -n "$SABBEL_SIGN_P12_PASSWORD" ] \
+            || { echo "✗ SABBEL_SIGN_P12 / SABBEL_SIGN_P12_PASSWORD secrets are not set"; exit 1; }
+          KEYCHAIN="$RUNNER_TEMP/sabbel-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          # Recorded first so the always-run cleanup deletes it even if a later command fails.
+          echo "SABBEL_SIGN_KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+          echo "$SABBEL_SIGN_P12" | base64 --decode > "$RUNNER_TEMP/sabbel-sign.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/sabbel-sign.p12" -k "$KEYCHAIN" \
+            -P "$SABBEL_SIGN_P12_PASSWORD" -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/sabbel-sign.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          # Put the temporary keychain first in the search list (keep the others).
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          echo "SABBEL_SIGN_IDENTITY=Sabbel Release" >> "$GITHUB_ENV"
 
       - name: Build Sabbel.app
-        # The Makefile is the one build recipe; the bundle fixups used to be
-        # copied here as well, and a fix to one copy could miss the other.
-        run: make build-app BUILD_PYTHON=.venv/bin/python
+        # A dry run builds "dev" (version 0.0.0), ad hoc signed.
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF" == refs/tags/v* ]]; then
+            make build-app VERSION="${GITHUB_REF_NAME#v}"
+          else
+            make build-app
+          fi
+
+      - name: Refuse ad-hoc signature
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        run: |
+          # Authority= lines appear only at -dvv; plain -dv never prints them.
+          codesign -dvv dist/Sabbel.app 2>&1 | grep -q "Authority=Sabbel Release" \
+            || { echo "✗ dist/Sabbel.app is not signed by Sabbel Release"; codesign -dvv dist/Sabbel.app 2>&1; exit 1; }
+          echo "✓ Signed by Sabbel Release"
 
       - name: Verify bundle is standalone
         run: |
-          test -d dist/Sabbel.app/Contents/MacOS
+          test -x dist/Sabbel.app/Contents/MacOS/Sabbel
           test -f dist/Sabbel.app/Contents/Info.plist
-          test -f dist/Sabbel.app/Contents/Frameworks/mlx.metallib
-          # Framework Python embeds Python.framework, non-framework embeds libpython
-          if [ -f dist/Sabbel.app/Contents/Frameworks/libpython3.13.dylib ] || \
-             [ -d dist/Sabbel.app/Contents/Frameworks/Python.framework ]; then
-            echo "✓ Python embedded (standalone)"
-          else
-            echo "✗ Python NOT embedded (semi-standalone)"
-            echo "Contents of Frameworks/:"
-            ls -la dist/Sabbel.app/Contents/Frameworks/
-            exit 1
-          fi
-          # Check no absolute paths leak
-          LEAKS=$(find dist/Sabbel.app \( -name "*.dylib" -o -name "*.so" \) \
+          test -f dist/Sabbel.app/Contents/Resources/Sabbel.icns
+          codesign --verify --deep --strict dist/Sabbel.app
+          # Every dependency of the binary and of anything bundled must be a
+          # system library or an @rpath/@loader_path/@executable_path one.
+          LEAKS=$(find dist/Sabbel.app -type f \( -perm -u+x -o -name "*.dylib" -o -name "*.so" \) \
             -exec otool -L {} \; 2>/dev/null \
-            | grep -E "^\t/(opt/homebrew|usr/local|Users)" || true)
+            | grep -E "^\s+/" | grep -vE "^\s+/(System|usr/lib)/" || true)
           if [ -n "$LEAKS" ]; then
             echo "✗ Non-portable paths found:"
             echo "$LEAKS"
             exit 1
           fi
-          echo "✓ No path leaks detected"
+          # Every @rpath dependency must resolve inside the bundle.
+          MISSING=0
+          for dep in $(otool -L dist/Sabbel.app/Contents/MacOS/Sabbel | awk '/@rpath\//{print $1}'); do
+            name="${dep#@rpath/}"
+            if ! find dist/Sabbel.app -path "*/$name" | grep -q .; then
+              echo "✗ $dep not found in the bundle"; MISSING=1
+            fi
+          done
+          [ "$MISSING" = 0 ] || exit 1
           echo "✓ Bundle verification passed"
 
       - name: Zip the app
@@ -101,11 +112,21 @@ jobs:
           ditto -ck --keepParent Sabbel.app Sabbel.zip
 
       - name: Create GitHub Release
-        # Only on a real tag. A workflow_dispatch run stops after the bundle
-        # verification above — every v* tag becomes the "latest" release that
-        # install.sh serves, so there is no such thing as a throwaway tag here.
-        if: startsWith(github.ref, 'refs/tags/v')
+        # Only on a tag push. A workflow_dispatch run stops after the zip, even
+        # when dispatched on a tag ref. Every non-prerelease v* tag becomes the
+        # "latest" release that install.sh and the in-app update check serve; a
+        # tag with "-" is a prerelease.
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v3
         with:
           files: dist/Sabbel.zip
           generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+
+      - name: Delete signing keychain
+        if: always()
+        run: |
+          if [ -n "${SABBEL_SIGN_KEYCHAIN:-}" ]; then
+            security delete-keychain "$SABBEL_SIGN_KEYCHAIN" || true
+          fi
+          rm -f "$RUNNER_TEMP/sabbel-sign.p12"

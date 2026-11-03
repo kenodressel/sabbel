@@ -28,7 +28,7 @@
 
 ---
 
-Speaking is 3-4x faster than typing. Sabbel turns your voice into text anywhere on your Mac — powered by NVIDIA Parakeet on Apple Silicon, fully offline.
+Speaking is 3-4x faster than typing. Sabbel turns your voice into text anywhere on your Mac — powered by NVIDIA Parakeet on the Apple Neural Engine, fully offline.
 
 ## Why Sabbel
 
@@ -62,12 +62,13 @@ Speaking is 3-4x faster than typing. Sabbel turns your voice into text anywhere 
 | | Sabbel | Wispr Flow | Superwhisper |
 |---|---|---|---|
 | **Price** | Free | $15/month | $8/month |
-| **Processing** | Local (Apple Silicon GPU) | Cloud | Local |
+| **Processing** | Local (Apple Neural Engine) | Cloud | Local |
 | **Open Source** | Yes | No | No |
 | **Privacy** | Audio never leaves your Mac | Audio sent to cloud | Local option |
 
-Transcription runs at roughly 17x real time on an M-series Mac — 4.6 seconds
-of speech came back in 0.27s in local testing.
+Sabbel transcribes while you speak, so the text is pasted about 50 ms after
+you release the key, whether you spoke for five seconds or five minutes. It
+uses about 50 MB of memory.
 
 ## Install
 
@@ -85,14 +86,25 @@ No dependencies, no Python, no package manager. The script downloads `Sabbel.app
 
 On first launch:
 - macOS asks for **Accessibility** and **Microphone** permissions
-- The Parakeet model (~2.3GB) downloads automatically in the background
+- The Parakeet model (~470 MB) downloads automatically in the background
+
+To update, run the install command again. Sabbel tells you when there is a new release: the menu shows **Update vX available**.
+
+Updates keep those permissions, because every release is signed with the same certificate. The one exception is the update from a 0.5.x build: those were not signed with it, so the installer resets the permissions once and macOS asks again, instead of showing them as granted while denying them.
+
+> **Updating from 0.5.x?** The old Python version kept a ~2.3 GB model in
+> `~/.cache/huggingface/hub/models--mlx-community--parakeet-tdt-0.6b-v3`.
+> Sabbel no longer uses it, so you can delete that folder.
 
 ## How It Works
 
 | Action | What happens |
 |--------|-------------|
 | Hold **Right Option** (⌥) | Recording starts |
-| Release **Right Option** (⌥) | Speech is transcribed and pasted into the focused app |
+| Release **Right Option** (⌥) | The text is pasted into the focused app |
+| Press **Esc** while holding | Cancels the take |
+
+Sabbel transcribes while you speak. Sabbel menu → **Show Live Text** opens a small window that shows the text as it forms, without taking the focus from the app you are dictating into.
 
 The menu bar icon shows the current state:
 
@@ -100,8 +112,8 @@ The menu bar icon shows the current state:
 |------|-------|
 | **🎙** | Idle — ready to record |
 | **🔴** | Recording |
-| **◐** | Processing / transcribing |
-| **⚠️** | Error (auto-clears after 2s) |
+| **◐** | Finishing the last words |
+| **⚠️** | Error (clears after 2s) |
 
 ## Configuration
 
@@ -110,9 +122,6 @@ Create `~/.config/sabbel/config.toml` to override defaults:
 ```toml
 [general]
 hotkey = "alt_r"   # Right Option key. Other options: f5, ctrl_r, cmd_r, ...
-
-[model]
-repo = "mlx-community/parakeet-tdt-0.6b-v3"
 
 [audio]
 min_duration_seconds = 0.5
@@ -125,29 +134,9 @@ max_bytes = 1000000    # Rotate log to .1 once it grows beyond this.
 
 Nothing in this file can stop Sabbel from starting. A value Sabbel cannot use
 is ignored in favour of its default — a malformed file falls back entirely —
-and the reason is written to `/tmp/sabbel-runtime.log`.
-
-**Sabbel also cleans the file up after an upgrade.** Entries that are obsolete
-or unusable are commented out in place, each with a `# sabbel:` note saying
-why, so you aren't warned about the same dead line on every launch:
-
-```toml
-[general]
-# sabbel: no longer used by this version of Sabbel
-# language = "de"
-hotkey = "ctrl_r"        # your comments and settings are left alone
-```
-
-Your original file is kept as `config.toml.bak` before the first such
-rewrite. Only lines Sabbel can locate unambiguously are touched, and the
-result has to yield exactly the same effective settings — otherwise the file
-is left untouched and the entries are just ignored at load time.
-
-> **Upgrading from a pre-0.4.0 (Whisper) install?** Nothing to do. Sabbel now
-> runs Parakeet, so a `[model] repo` pinned to a Whisper model no longer
-> loads: Sabbel uses its default model, comments the line out, and tells you.
-> `[general] language` and the custom dictionary are gone too, and get the
-> same treatment.
+and the reason is written to `/tmp/sabbel-runtime.log`. Entries from older
+versions (`[model] repo`, `[injection]`, `[general] language`) are ignored the
+same way; you can delete them.
 
 **Toggle from the menu bar:** open the Sabbel menu → **History → Save history**. The checkmark persists across restarts (stored in `~/.config/sabbel/preferences.json`), so you don't need to edit TOML. Use **History → Open log** and **History → Clear log** to view or wipe it.
 
@@ -167,12 +156,10 @@ If you build from source, you can set up Sabbel as a login item:
 make autostart          # Start now + on every login
 make stop               # Stop
 make restart             # Restart
-make reinstall-app      # Reinstall app bundle after packaging changes
+make install-app        # Build and reinstall the app
 make autostart-remove   # Disable
 make status              # Check if running
 ```
-
-For normal Python code changes, prefer `make restart`. Reinstalling the app bundle can cause macOS to treat it like a fresh app for Accessibility and Microphone permissions, so `make reinstall-app` should only be used after bundle or packaging changes.
 
 ## Requirements
 
@@ -184,15 +171,60 @@ For normal Python code changes, prefer `make restart`. Reinstalling the app bund
 ```bash
 git clone https://github.com/kenodressel/sabbel
 cd sabbel
-uv run sabbel            # Run from source
-uv run pytest            # Run tests
-make build-app           # Build standalone .app with py2app
-make install-app         # Build + install + reset permissions
-make restart             # Reload the already installed app during normal dev
+make test               # Unit tests (no model needed)
+make test-model          # Tests against the real Parakeet model (slow)
+make test-e2e            # The real app on this Mac: record, transcribe, paste (~30s, hands off)
+make build-app           # Build and sign dist/Sabbel.app; VERSION=1.2.3 sets the version
+make install-app         # Build + install into ~/Applications
+make restart             # Restart the installed app
 make reset-permissions   # Reset Accessibility + Microphone permissions manually
 ```
 
-Note: `make install-app` automatically resets TCC permissions because each build has a new ad-hoc signature. macOS will prompt for Accessibility and Microphone permissions again on launch.
+Building needs Xcode 16.4 or later (the Command Line Tools lack Swift's test frameworks). The Makefile uses `/Applications/Xcode.app`; set `DEVELOPER_DIR` for another location.
+
+Note: `make build-app` signs with `$SABBEL_SIGN_IDENTITY`. If that is unset it uses the "Sabbel Release" certificate when your keychain has it (see below), and signs ad hoc otherwise. `make install-app` and `install.sh` keep the Accessibility and Microphone grants when the installed app and the new one have the same designated requirement ("Sabbel Release" on both sides), and reset them when the installed app is ad hoc signed or signed differently, so macOS asks again. An ad-hoc signature changes with every build, so without the certificate every `make install-app` resets them. `make reset-permissions` resets them by hand.
+
+### Signing releases
+
+macOS ties Accessibility and Microphone grants to the app's code signature. Releases are therefore signed with a stable self-signed certificate, "Sabbel Release", so that grants survive updates. There is no notarization, so the app is not sandboxed or hardened. The maintainer creates the certificate once; CI only imports it.
+
+```bash
+# 1. Create a self-signed code-signing certificate (10 years).
+cat > /tmp/sabbel-cert.cnf <<'CNF'
+[req]
+distinguished_name = dn
+x509_extensions = ext
+prompt = no
+[dn]
+CN = Sabbel Release
+[ext]
+keyUsage = critical, digitalSignature
+extendedKeyUsage = critical, codeSigning
+basicConstraints = critical, CA:false
+CNF
+/usr/bin/openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+  -config /tmp/sabbel-cert.cnf -keyout sabbel-release.key -out sabbel-release.crt
+
+# 2. Bundle it as a .p12. Use macOS's own /usr/bin/openssl (LibreSSL) throughout:
+#    it writes a format `security import` reads; Homebrew OpenSSL 3 needs -legacy for that.
+P12_PASSWORD="$(/usr/bin/openssl rand -base64 24)"
+/usr/bin/openssl pkcs12 -export -inkey sabbel-release.key -in sabbel-release.crt \
+  -name "Sabbel Release" -out sabbel-release.p12 -passout "pass:$P12_PASSWORD"
+
+# 3. Import it locally so `make build-app` finds it, and trust it for code signing
+#    (without the trust step a self-signed certificate is not a valid identity).
+security import sabbel-release.p12 -k ~/Library/Keychains/login.keychain-db \
+  -P "$P12_PASSWORD" -T /usr/bin/codesign
+security add-trusted-cert -r trustRoot -p codeSign \
+  -k ~/Library/Keychains/login.keychain-db sabbel-release.crt
+security find-identity -v -p codesigning   # must list "Sabbel Release"
+
+# 4. Store the two secrets for the Release workflow.
+base64 < sabbel-release.p12 | gh secret set SABBEL_SIGN_P12
+printf '%s' "$P12_PASSWORD" | gh secret set SABBEL_SIGN_P12_PASSWORD
+```
+
+Back up `sabbel-release.p12` and its password somewhere safe (a password manager), then delete the loose `.key` and `.crt`. If the certificate is lost, a new one has a different signature and every user has to grant the permissions once more. The Release workflow refuses to publish a tag build that is not signed by "Sabbel Release". Tags containing `-` (for example `v1.0.0-rc.1`) are published as prereleases, which the update check and `install.sh` never pick up on their own. Install one on purpose with `curl -fsSL https://raw.githubusercontent.com/kenodressel/sabbel/main/install.sh | SABBEL_VERSION=v1.0.0-rc.1 sh`.
 
 ## Contributing
 
@@ -202,14 +234,14 @@ Check the [open issues](https://github.com/kenodressel/sabbel/issues) for things
 
 ## How It's Built
 
-Sabbel is a Python menu bar app built with [rumps](https://github.com/jaredks/rumps). Speech recognition runs locally via [parakeet-mlx](https://github.com/senstella/parakeet-mlx) on Apple Silicon GPU. The app is packaged as a self-contained `.app` bundle using [py2app](https://github.com/ronaldoussoren/py2app) — Python runtime and all dependencies are embedded, so end users don't need Python installed.
+Sabbel is a native Swift menu bar app (Swift Package Manager, in `native/`). Speech recognition runs locally with NVIDIA's Parakeet TDT 0.6b v3 on CoreML via [FluidAudio](https://github.com/FluidInference/FluidAudio), mostly on the Apple Neural Engine. While you hold the key, Sabbel re-transcribes the last ten seconds once a second and settles the words that stay stable, so on release only the last few seconds are left to transcribe. Versions up to 0.5.x were a Python app (rumps, parakeet-mlx, py2app).
 
 Releases are built automatically on GitHub Actions (Apple Silicon runner) and published as GitHub Releases.
 
 ## Logs and bug reports
 
 Sabbel menu → **Copy diagnostics** puts everything a bug report needs on your
-clipboard: version, macOS, MLX version, the model in use, your `config.toml`
+clipboard: version, macOS, the speech engine and model, your `config.toml`
 if you have one, and the last 40 log lines. That beats a screenshot of the
 status line, which never shows the actual error.
 

@@ -1,10 +1,7 @@
 __pycache__/
 *.pyc
-*.egg-info/
 dist/
 build/
-.pytest_cache/
-.venv/
 .claude/
 icons/Sabbel.icns
 .DS_Store
