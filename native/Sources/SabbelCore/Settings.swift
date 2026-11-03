@@ -18,6 +18,7 @@ public struct SabbelPaths: Sendable {
     public var preferencesJSON: URL { configDir.appendingPathComponent("preferences.json") }
     public var historyLog: URL { configDir.appendingPathComponent("history.log") }
     public var updateCheckJSON: URL { configDir.appendingPathComponent("update-check.json") }
+    public var glossary: URL { configDir.appendingPathComponent("glossary.txt") }
 }
 
 /// User-authored settings from `config.toml`, overlaid with `preferences.json`.
@@ -43,12 +44,17 @@ public struct SabbelSettings: Equatable, Sendable {
     public var historyEnabled = false
     public var historyMaxBytes = 1_000_000
     public var audioDevice: String? = nil
+    /// Remove fillers ("ähm", "uh") and accidental repeats before pasting.
+    public var tidyText = true
+    /// Per-app formatting, e.g. no trailing period in chat and terminal apps.
+    public var appRules = true
 
     public init() {}
 
     private static let known: [String: Set<String>] = [
         "general": ["hotkey"], "audio": ["min_duration_seconds"],
         "history": ["enabled", "max_bytes"],
+        "text": ["tidy", "app_rules"],
     ]
     private static let obsolete: [String: Set<String>] = [
         "model": ["repo"], "injection": ["pre_paste_delay", "post_paste_delay"],
@@ -109,6 +115,14 @@ public struct SabbelSettings: Equatable, Sendable {
         if let raw = doc["history"]?["max_bytes"] {
             if case .integer(let i) = raw, i > 0 { historyMaxBytes = i }
             else { reject("history", "max_bytes", raw, "expected a whole number > 0", historyMaxBytes) }
+        }
+        if let raw = doc["text"]?["tidy"] {
+            if case .bool(let b) = raw { tidyText = b }
+            else { reject("text", "tidy", raw, "expected true or false", tidyText) }
+        }
+        if let raw = doc["text"]?["app_rules"] {
+            if case .bool(let b) = raw { appRules = b }
+            else { reject("text", "app_rules", raw, "expected true or false", appRules) }
         }
     }
 

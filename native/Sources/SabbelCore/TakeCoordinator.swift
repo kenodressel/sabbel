@@ -98,13 +98,14 @@ public final class TakeCoordinator {
     private var notifiedMissingDevice: String?
 
     /// - Parameters:
+    ///   - pipeline: rewrites the final text before it is pasted and saved.
     ///   - errorClearDelay: how long an error stays in the menu bar before it
     ///     clears back to idle.
     ///   - now: a monotonic clock in seconds, for the hold time of a take.
     ///   - log: receives the decisions `app.py` logs, never the dictated text.
     public init(settings: SabbelSettings, paths: SabbelPaths, audio: any AudioSource, focus: any FocusProbe,
                 injector: Injector, makeTranscriber: @escaping @Sendable () -> StreamingTranscriber,
-                ui: any SabbelUI, errorClearDelay: Duration = .seconds(2),
+                ui: any SabbelUI, pipeline: TextPipeline = .identity, errorClearDelay: Duration = .seconds(2),
                 now: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
                 log: (@Sendable (String) -> Void)? = nil) {
         self.audio = audio
@@ -121,7 +122,7 @@ public final class TakeCoordinator {
         self.jobs = jobs
         let line = PasteLine(injector: injector,
                              history: HistoryLog(url: paths.historyLog, maxBytes: settings.historyMaxBytes),
-                             minDuration: settings.minDuration, log: log)
+                             minDuration: settings.minDuration, pipeline: pipeline, log: log)
         let deliver: @Sendable (TakeResult) async -> Void = { [weak self] result in
             await self?.finished(result)
         }
@@ -411,12 +412,15 @@ actor PasteLine {
     private let injector: Injector
     private let history: HistoryLog
     private let minDuration: TimeInterval
+    private let pipeline: TextPipeline
     private let log: (@Sendable (String) -> Void)?
 
-    init(injector: Injector, history: HistoryLog, minDuration: TimeInterval, log: (@Sendable (String) -> Void)?) {
+    init(injector: Injector, history: HistoryLog, minDuration: TimeInterval, pipeline: TextPipeline,
+         log: (@Sendable (String) -> Void)?) {
         self.injector = injector
         self.history = history
         self.minDuration = minDuration
+        self.pipeline = pipeline
         self.log = log
     }
 
@@ -450,19 +454,22 @@ actor PasteLine {
             return .outcome(.refusedSecure)
         }
 
-        let text: String
+        let recognized: String
         do {
-            text = try await job.transcriber.finish()
+            recognized = try await job.transcriber.finish()
         } catch {
             log?("Transcription error: \(error)")
             return .failed
         }
+        // A take of nothing but fillers ends up empty here, like silence.
+        let text = pipeline.process(recognized, target: job.target)
         if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             log?("Recording rejected: empty transcription")
             return .notRecognized
         }
 
-        log?("Transcription succeeded: chars=\(text.count)")
+        log?("Transcription succeeded: chars=\(recognized.count)"
+             + (text == recognized ? "" : " after rewrite=\(text.count)"))
         let outcome = injector.inject(text, target: job.target)
         log?("Inject outcome: \(outcome.rawValue)")
         // Only once the outcome is known: a dictation refused by a password field

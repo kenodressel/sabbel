@@ -19,7 +19,7 @@ public struct SystemFocusProbe: FocusProbe {
     public func capture() -> (target: FocusTarget?, secure: Bool) {
         guard let app = NSWorkspace.shared.frontmostApplication else { return (nil, false) }
         let pid = app.processIdentifier
-        let target = FocusTarget(pid: pid, name: app.localizedName)
+        let target = FocusTarget(pid: pid, name: app.localizedName, bundleID: app.bundleIdentifier)
 
         let appElement = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(appElement, Self.axTimeout)

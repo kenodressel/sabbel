@@ -130,6 +130,10 @@ min_duration_seconds = 0.5
 enabled = false        # Seed value. The menu toggle is the primary control
                        # and overrides this once flipped.
 max_bytes = 1000000    # Rotate log to .1 once it grows beyond this.
+
+[text]
+tidy = true            # Remove fillers ("ähm", "uh") and accidental repeats.
+app_rules = true       # Per-app formatting, e.g. no trailing period in Slack.
 ```
 
 Nothing in this file can stop Sabbel from starting. A value Sabbel cannot use

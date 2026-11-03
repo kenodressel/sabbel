@@ -28,7 +28,8 @@ final class Harness {
          focus: FakeFocusProbe = FakeFocusProbe(),
          recognizers: [FakeRecognizer] = [Harness.hello()],
          modelState: ModelState = .ready,
-         permissionsReady: Bool = true) {
+         permissionsReady: Bool = true,
+         pipeline: TextPipeline = .identity) {
         dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("sabbel-coordinator-\(UUID().uuidString)", isDirectory: true)
         paths = SabbelPaths(configDir: dir)
@@ -39,7 +40,7 @@ final class Harness {
             settings: settings, paths: paths, audio: audio, focus: focus,
             injector: Injector(env: env, ownPID: focus.ownPID),
             makeTranscriber: { StreamingTranscriber(recognizer: queue.take()) },
-            ui: ui, errorClearDelay: .milliseconds(30), now: { [clock] in clock.value })
+            ui: ui, pipeline: pipeline, errorClearDelay: .milliseconds(30), now: { [clock] in clock.value })
         coordinator.modelState = modelState
         coordinator.permissionsReady = permissionsReady
     }
@@ -378,6 +379,34 @@ final class Harness {
         #expect(h.env.currentString == "hello")
         #expect(h.ui.notices == [.textCopiedNoField])
         #expect(h.history?.contains("hello") == true)
+    }
+
+    // MARK: text pipeline
+
+    @Test func pipelineRewritesWhatIsPastedAndSaved() async {
+        let h = Harness(settings: Self.historyOn(), pipeline: TextPipeline([{ text, _ in text.uppercased() }]))
+        h.take()
+        await h.coordinator.waitUntilIdle()
+        #expect(h.pasted == ["HELLO"])
+        #expect(h.history?.contains("HELLO\n") == true)
+        #expect(h.history?.contains("hello") == false)
+    }
+
+    @Test func pipelineSeesTheTakesTarget() async {
+        let seen = LockedBox<[FocusTarget?]>([])
+        let h = Harness(pipeline: TextPipeline([{ text, target in seen.mutate { $0.append(target) }; return text }]))
+        h.take()
+        await h.coordinator.waitUntilIdle()
+        #expect(seen.value == [Harness.target])
+    }
+
+    @Test func textEmptiedByThePipelineIsNotRecognized() async {
+        let h = Harness(settings: Self.historyOn(), pipeline: TextPipeline([{ _, _ in " " }]))
+        h.take()
+        await h.coordinator.waitUntilIdle()
+        #expect(h.ui.shows.contains { $0.icon == .error("Not recognized") })
+        #expect(h.env.calls.isEmpty)
+        #expect(h.history == nil)
     }
 
     @Test func injectGetsTheTakesTarget() async {

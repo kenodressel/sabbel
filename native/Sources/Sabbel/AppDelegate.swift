@@ -48,7 +48,8 @@ import SabbelSystem
         info("Settings: config dir \(paths.configDir.path)")
         info("Settings: hotkey=\(settings.hotkeyName) min_duration_seconds=\(settings.minDuration) "
              + "history_enabled=\(settings.historyEnabled) history_max_bytes=\(settings.historyMaxBytes) "
-             + "audio_device=\(settings.audioDevice ?? "System Default")")
+             + "audio_device=\(settings.audioDevice ?? "System Default") "
+             + "text_tidy=\(settings.tidyText) text_app_rules=\(settings.appRules)")
 
         let notifier = Notifier(log: info)
         notifier.requestAuthorization()
@@ -60,7 +61,8 @@ import SabbelSystem
         let coordinator = TakeCoordinator(
             settings: settings, paths: paths, audio: MicCapture(log: info), focus: SystemFocusProbe(),
             injector: Injector(env: SystemPasteEnvironment(), ownPID: getpid(), log: info),
-            makeTranscriber: { StreamingTranscriber(recognizer: slot) }, ui: menuBar, log: info)
+            makeTranscriber: { StreamingTranscriber(recognizer: slot) }, ui: menuBar,
+            pipeline: .standard(settings: settings, paths: paths, log: info), log: info)
         menuBar.coordinator = coordinator
         self.menuBar = menuBar
         self.coordinator = coordinator
