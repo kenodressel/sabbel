@@ -29,6 +29,10 @@ test-python: ## Run the Python unit tests (mocked MLX, ~1s)
 
 test-model: native-test-model ## Run the real-model tests against Parakeet (slow)
 
+.PHONY: test-e2e
+test-e2e: build-app ## End-to-end check on this Mac: real app, model and paste (hands off ~30s; the terminal needs Accessibility)
+	dist/Sabbel.app/Contents/MacOS/Sabbel --e2e
+
 icons/Sabbel.icns: icons/sabbel-icon.png ## Generate app icon from sabbel-icon.png
 	@mkdir -p build/Sabbel.iconset
 	@cp icons/sabbel-icon.png build/Sabbel.iconset/icon_512x512@2x.png

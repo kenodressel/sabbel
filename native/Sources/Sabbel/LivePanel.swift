@@ -53,6 +53,9 @@ final class NonKeyPanel: NSPanel {
         if model.provisional != parts.provisional { model.provisional = parts.provisional }
     }
 
+    /// The panel is on screen.
+    var isOpen: Bool { panel?.isVisible ?? false }
+
     func show() {
         let panel = self.panel ?? makePanel()
         self.panel = panel

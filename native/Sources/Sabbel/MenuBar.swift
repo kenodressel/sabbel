@@ -229,7 +229,10 @@ import SabbelSystem
 
     // MARK: other items
 
-    @objc private func showLiveText() { livePanel.show() }
+    /// Internal, not private: the `--e2e` run opens the panel for its second take.
+    @objc func showLiveText() { livePanel.show() }
+
+    var livePanelOpen: Bool { livePanel.isOpen }
 
     /// Everything a bug report needs, on the clipboard as an ordinary
     /// (non-transient) item so clipboard managers keep it.
