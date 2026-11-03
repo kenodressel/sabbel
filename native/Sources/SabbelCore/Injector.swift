@@ -196,6 +196,17 @@ public struct Injector: Sendable {
             return .focusChanged
         }
 
+        // The pid check can't see a focus move *within* the target app (Tab into a
+        // password field, a login sheet appearing) during the same window, so the
+        // secure check is repeated too. A refused secure take is never pasted,
+        // copied or saved: put the user's clipboard back so the transcript doesn't
+        // sit there.
+        if Self.isSecure(env.focusedElement()) {
+            info("Focused element is a secure text field — refusing to paste")
+            env.restoreClipboard(snapshot)
+            return .refusedSecure
+        }
+
         env.postCommandV(to: target?.pid)
 
         // Wait for the paste to actually land before touching the clipboard again.

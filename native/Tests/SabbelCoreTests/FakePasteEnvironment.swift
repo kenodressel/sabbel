@@ -12,6 +12,8 @@ import Foundation
 /// - `sleep` advances the clock instead of sleeping.
 /// - The clipboard is modelled: `writeTransient` and `restoreClipboard` replace
 ///   its items and bump the change count, `userCopies` simulates another writer.
+/// - Thread-safe: every stored property (answers, `onCall`, log, clock, clipboard)
+///   is read and written under one lock; answers and `onCall` run outside it.
 final class FakePasteEnvironment: PasteEnvironment, @unchecked Sendable {
     enum Call: Equatable {
         case frontmostPID
@@ -30,33 +32,62 @@ final class FakePasteEnvironment: PasteEnvironment, @unchecked Sendable {
 
     static let stringType = "public.utf8-plain-text"
 
-    private let lock = NSRecursiveLock()
+    private let lock = NSLock()
+
+    /// Run `body` under the lock. Never nest: `NSLock` is not recursive.
+    private func locked<T>(_ body: () -> T) -> T { lock.withLock(body) }
 
     // MARK: scripted answers
 
-    var frontmostPIDAnswer: (Int, TimeInterval) -> Int32? = { _, _ in nil }
-    var focusedElementAnswer: (Int, TimeInterval) -> FocusedElement? = { _, _ in nil }
-    var focusedValueAnswer: (Int, TimeInterval) -> String? = { _, _ in nil }
-    var modifiersHeldAnswer: (Int, TimeInterval) -> Bool = { _, _ in false }
+    private var _frontmostPIDAnswer: (Int, TimeInterval) -> Int32? = { _, _ in nil }
+    private var _focusedElementAnswer: (Int, TimeInterval) -> FocusedElement? = { _, _ in nil }
+    private var _focusedValueAnswer: (Int, TimeInterval) -> String? = { _, _ in nil }
+    private var _modifiersHeldAnswer: (Int, TimeInterval) -> Bool = { _, _ in false }
+    private var _onCall: ((Call, FakePasteEnvironment) -> Void)?
+
+    var frontmostPIDAnswer: (Int, TimeInterval) -> Int32? {
+        get { locked { _frontmostPIDAnswer } }
+        set { locked { _frontmostPIDAnswer = newValue } }
+    }
+    var focusedElementAnswer: (Int, TimeInterval) -> FocusedElement? {
+        get { locked { _focusedElementAnswer } }
+        set { locked { _focusedElementAnswer = newValue } }
+    }
+    var focusedValueAnswer: (Int, TimeInterval) -> String? {
+        get { locked { _focusedValueAnswer } }
+        set { locked { _focusedValueAnswer = newValue } }
+    }
+    var modifiersHeldAnswer: (Int, TimeInterval) -> Bool {
+        get { locked { _modifiersHeldAnswer } }
+        set { locked { _modifiersHeldAnswer = newValue } }
+    }
     /// Runs after a call has been recorded (outside the answer), e.g. to have the
     /// "user" copy something mid-paste.
-    var onCall: ((Call, FakePasteEnvironment) -> Void)?
+    var onCall: ((Call, FakePasteEnvironment) -> Void)? {
+        get { locked { _onCall } }
+        set { locked { _onCall = newValue } }
+    }
 
     // MARK: state
 
-    private(set) var log: [(call: Call, at: TimeInterval)] = []
-    private(set) var clock: TimeInterval = 0
-    private(set) var changeCount = 1
-    private(set) var items: [[String: Data]]
+    private var _log: [(call: Call, at: TimeInterval)] = []
+    private var _clock: TimeInterval = 0
+    private var _changeCount = 1
+    private var _items: [[String: Data]]
     private var counts: [String: Int] = [:]
 
+    var log: [(call: Call, at: TimeInterval)] { locked { _log } }
+    var clock: TimeInterval { locked { _clock } }
+    var changeCount: Int { locked { _changeCount } }
+    var items: [[String: Data]] { locked { _items } }
+
     init(clipboard: [[String: Data]] = [[FakePasteEnvironment.stringType: Data("old clip".utf8)]]) {
-        items = clipboard
+        _items = clipboard
     }
 
     // MARK: test helpers
 
-    var calls: [Call] { lock.withLock { log.map(\.call) } }
+    var calls: [Call] { log.map(\.call) }
 
     /// Calls other than the bookkeeping ones (`now`, `sleep`), for order assertions.
     var actions: [Call] {
@@ -69,7 +100,7 @@ final class FakePasteEnvironment: PasteEnvironment, @unchecked Sendable {
     }
 
     var currentString: String? {
-        lock.withLock { items.first?[Self.stringType].flatMap { String(data: $0, encoding: .utf8) } }
+        items.first?[Self.stringType].flatMap { String(data: $0, encoding: .utf8) }
     }
 
     func count(_ call: Call) -> Int { calls.filter { $0 == call }.count }
@@ -82,27 +113,27 @@ final class FakePasteEnvironment: PasteEnvironment, @unchecked Sendable {
 
     /// Clock value at the first matching call, if any.
     func time(of predicate: (Call) -> Bool) -> TimeInterval? {
-        lock.withLock { log.first { predicate($0.call) }?.at }
+        log.first { predicate($0.call) }?.at
     }
 
     func index(of predicate: (Call) -> Bool) -> Int? { actions.firstIndex(where: predicate) }
 
     /// Another writer (the user, a clipboard manager) puts `text` on the clipboard.
     func userCopies(_ text: String) {
-        lock.withLock {
-            items = [[Self.stringType: Data(text.utf8)]]
-            changeCount += 1
+        locked {
+            _items = [[Self.stringType: Data(text.utf8)]]
+            _changeCount += 1
         }
     }
 
     // MARK: recording
 
     private func record(_ call: Call, key: String) -> (Int, TimeInterval) {
-        let result: (Int, TimeInterval) = lock.withLock {
-            log.append((call, clock))
+        let result: (Int, TimeInterval) = locked {
+            _log.append((call, _clock))
             let n = counts[key, default: 0]
             counts[key] = n + 1
-            return (n, clock)
+            return (n, _clock)
         }
         onCall?(call, self)
         return result
@@ -132,33 +163,33 @@ final class FakePasteEnvironment: PasteEnvironment, @unchecked Sendable {
 
     func captureClipboard() -> ClipboardSnapshot {
         _ = record(.captureClipboard, key: "captureClipboard")
-        return lock.withLock { ClipboardSnapshot(items: items) }
+        return ClipboardSnapshot(items: items)
     }
 
     func restoreClipboard(_ snapshot: ClipboardSnapshot) {
         _ = record(.restoreClipboard, key: "restoreClipboard")
-        lock.withLock {
-            items = snapshot.items
-            changeCount += 1
+        locked {
+            _items = snapshot.items
+            _changeCount += 1
         }
     }
 
     func writeTransient(_ text: String) -> Int {
         _ = record(.writeTransient(text), key: "writeTransient")
-        return lock.withLock {
-            items = [[
+        return locked {
+            _items = [[
                 Self.stringType: Data(text.utf8),
                 "org.nspasteboard.TransientType": Data(),
                 "org.nspasteboard.AutoGeneratedType": Data(),
             ]]
-            changeCount += 1
-            return changeCount
+            _changeCount += 1
+            return _changeCount
         }
     }
 
     func clipboardChangeCount() -> Int {
         _ = record(.clipboardChangeCount, key: "clipboardChangeCount")
-        return lock.withLock { changeCount }
+        return changeCount
     }
 
     func clipboardString() -> String? {
@@ -172,11 +203,11 @@ final class FakePasteEnvironment: PasteEnvironment, @unchecked Sendable {
 
     func sleep(_ seconds: TimeInterval) {
         _ = record(.sleep(seconds), key: "sleep")
-        lock.withLock { clock += seconds }
+        locked { _clock += seconds }
     }
 
     func now() -> TimeInterval {
         _ = record(.now, key: "now")
-        return lock.withLock { clock }
+        return clock
     }
 }

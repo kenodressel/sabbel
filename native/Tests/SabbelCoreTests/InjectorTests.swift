@@ -340,14 +340,16 @@ import Testing
 
         #expect(env.actions == [
             .frontmostPID, .focusedElement, .modifiersHeld, .captureClipboard, .focusedValue,
-            .writeTransient("hallo"), .frontmostPID, .postCommandV(42), .clipboardChangeCount, .restoreClipboard,
+            .writeTransient("hallo"), .frontmostPID, .focusedElement, .postCommandV(42),
+            .clipboardChangeCount, .restoreClipboard,
         ])
-        // The second focus check sits after the pre-paste delay, right before Cmd+V.
+        // The second focus and secure checks sit after the pre-paste delay, right before Cmd+V.
         let calls = env.calls
         let commandV = try #require(calls.firstIndex(where: isCommandV))
-        #expect(calls[commandV - 1] == .frontmostPID)
-        #expect(calls[commandV - 2] == .sleep(0.05))
-        #expect(calls[commandV - 3] == .writeTransient("hallo"))
+        #expect(calls[commandV - 1] == .focusedElement)
+        #expect(calls[commandV - 2] == .frontmostPID)
+        #expect(calls[commandV - 3] == .sleep(0.05))
+        #expect(calls[commandV - 4] == .writeTransient("hallo"))
     }
 
     // MARK: second focus check, right before Cmd+V
@@ -396,6 +398,53 @@ import Testing
 
         #expect(result == .pasted)
         #expect(env.count(.postCommandV(nil)) == 1)
+    }
+
+    static let passwordField = FocusedElement(role: "AXTextField", subrole: "AXSecureTextField",
+                                              hasSelectedTextRange: true, valueSettable: true,
+                                              selectedTextSettable: true)
+
+    /// Tab into a password field (or a login sheet appearing) within the same app
+    /// during the modifier wait: the pid still matches, so only a second secure
+    /// check stops the Cmd+V.
+    @Test func focusMovedIntoSecureFieldBeforeCommandV() throws {
+        let original: [[String: Data]] = [
+            ["public.png": Data("img".utf8), FakePasteEnvironment.stringType: Data("txt".utf8)],
+        ]
+        let env = FakePasteEnvironment(clipboard: original)
+        env.frontmostPIDAnswer = { _, _ in 42 }
+        env.focusedElementAnswer = { n, _ in n == 0 ? Self.textField : Self.passwordField }
+        env.modifiersHeldAnswer = { _, t in t < 0.3 }
+        let logs = LogSink()
+
+        let result = Injector(env: env, log: logs.sink).inject("hunter2", target: Self.notes)
+
+        #expect(result == .refusedSecure)
+        #expect(!env.postedCommandV)
+        // The transcript was written, then the user's clipboard was put back.
+        let written = try #require(env.index(of: { $0 == .writeTransient("hunter2") }))
+        let restored = try #require(env.index(of: isRestore))
+        #expect(restored > written)
+        #expect(env.count(.restoreClipboard) == 1)
+        #expect(env.items == original)
+        #expect(env.currentString == "txt")
+        #expect(logs.lines == ["Focused element is a secure text field — refusing to paste"])
+    }
+
+    /// Both apply: a different app is frontmost and the focused element is secure.
+    /// The pid mismatch wins and the focused element is not even read again.
+    @Test func pidChangeWinsOverLateSecure() {
+        let env = notesEnv()
+        env.frontmostPIDAnswer = { n, _ in n == 0 ? 42 : 99 }
+        env.focusedElementAnswer = { n, _ in n == 0 ? Self.textField : Self.passwordField }
+
+        let result = Injector(env: env).inject("hallo", target: Self.notes)
+
+        #expect(result == .focusChanged)
+        #expect(!env.postedCommandV)
+        #expect(!env.didCall(isRestore))
+        #expect(env.count(.focusedElement) == 1)
+        #expect(env.currentString == "hallo")
     }
 
     // MARK: paste observation is a timing signal, not a verdict
