@@ -21,7 +21,8 @@ public struct TextPipeline: Sendable {
     /// The glossary comes first so the later stages see the corrected terms.
     public static func standard(settings: SabbelSettings, paths: SabbelPaths,
                                 log: @escaping @Sendable (String) -> Void) -> TextPipeline {
-        let stages: [Stage] = []
+        var stages: [Stage] = []
+        if settings.tidyText { stages.append(TextTidy.stage(log: log)) }
         return TextPipeline(stages)
     }
 

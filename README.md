@@ -142,6 +142,11 @@ and the reason is written to `/tmp/sabbel-runtime.log`. Entries from older
 versions (`[model] repo`, `[injection]`, `[general] language`) are ignored the
 same way; you can delete them.
 
+`tidy` removes spoken fillers (äh, ähm, öh, hm, mhm, uh, uhm, erm, …) and
+accidental repeats of two to four words ("at the at the" becomes "at the").
+"um" goes only when a comma or the end of the sentence follows it, since it is
+also a German word ("um 5 Uhr"). A single doubled word is always kept.
+
 **Toggle from the menu bar:** open the Sabbel menu → **History → Save history**. The checkmark persists across restarts (stored in `~/.config/sabbel/preferences.json`), so you don't need to edit TOML. Use **History → Open log** and **History → Clear log** to view or wipe it.
 
 > **⚠️ Privacy note:** History is off by default because transcriptions can include anything you dictate — including passwords, private notes, or confidential work data. Enable it only if you're comfortable with that trade-off. The log stays on your machine; nothing is uploaded.
