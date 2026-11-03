@@ -22,6 +22,7 @@ public struct TextPipeline: Sendable {
     public static func standard(settings: SabbelSettings, paths: SabbelPaths,
                                 log: @escaping @Sendable (String) -> Void) -> TextPipeline {
         var stages: [Stage] = []
+        if settings.tidyText { stages.append(TextTidy.stage(log: log)) }
         if settings.appRules { stages.append(AppRules.stage) }
         return TextPipeline(stages)
     }
