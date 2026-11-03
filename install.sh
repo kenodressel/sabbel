@@ -13,6 +13,58 @@ DOWNLOAD_URL="https://github.com/${REPO}/releases/latest/download/${ZIP_NAME}"
 PLIST_LABEL="com.sabbel.agent"
 PLIST_DIR="${HOME}/Library/LaunchAgents"
 PLIST_PATH="${PLIST_DIR}/${PLIST_LABEL}.plist"
+BUNDLE_ID="com.sabbel.app"
+
+# ---------------------------------------------------------------------------
+# Permissions (TCC) across an update
+#
+# macOS ties the Accessibility and Microphone grants to the app's designated
+# requirement. A release signed by the stable "Sabbel Release" certificate has
+# the same one as the release before it, so its grants carry over and must be
+# kept. When the installed app is ad hoc signed (every build is a new
+# identity, e.g. a 0.5.x Python build) or its requirement differs from the new
+# app's, the old grant no longer matches: macOS shows the switch as on while
+# denying the app. Only then are the grants reset, so macOS asks again.
+#
+# Shared with `make install-app`, which sources this file with
+# SABBEL_INSTALL_LIB=1 (as does scripts/test_install_tcc.sh).
+# ---------------------------------------------------------------------------
+
+# Exit 0 when the grants must be reset, 1 when they can be kept.
+#   $1  `codesign -dv` output (stderr) of the installed app
+#   $2  `codesign -d -r-` output of the installed app
+#   $3  `codesign -d -r-` output of the new app
+sabbel_needs_tcc_reset() {
+  case "$1" in
+    *Signature=adhoc*) return 0 ;;
+    *Authority=*) ;;
+    *) return 0 ;;  # unsigned or unreadable
+  esac
+  # Compare only the requirement: the Executable= line names each app's path.
+  # Ad-hoc output prints it as a comment ("# designated => cdhash ...").
+  _sabbel_old_dr="$(printf '%s\n' "$2" | sed -n 's/^#* *designated => //p')"
+  _sabbel_new_dr="$(printf '%s\n' "$3" | sed -n 's/^#* *designated => //p')"
+  if [ -n "${_sabbel_old_dr}" ] && [ "${_sabbel_old_dr}" = "${_sabbel_new_dr}" ]; then
+    return 1
+  fi
+  return 0
+}
+
+# Exit 0 when replacing the installed app $1 with the new app $2 needs a reset.
+sabbel_tcc_reset_needed() {
+  sabbel_needs_tcc_reset \
+    "$(codesign -dv "$1" 2>&1 || true)" \
+    "$(codesign -d -r- "$1" 2>&1 || true)" \
+    "$(codesign -d -r- "$2" 2>&1 || true)"
+}
+
+sabbel_reset_tcc() {
+  tccutil reset Accessibility "${BUNDLE_ID}" >/dev/null 2>&1 || true
+  tccutil reset Microphone "${BUNDLE_ID}" >/dev/null 2>&1 || true
+}
+
+# Sourced for the functions above only: stop before installing anything.
+if [ "${SABBEL_INSTALL_LIB:-}" = 1 ]; then return 0; fi
 
 # ---------------------------------------------------------------------------
 # Output helpers
@@ -103,6 +155,7 @@ mkdir -p "${INSTALL_DIR}"
 
 DEST="${INSTALL_DIR}/${APP_NAME}"
 IS_UPDATE=false
+TCC_RESET=false
 
 if [ -d "${DEST}" ]; then
   IS_UPDATE=true
@@ -113,6 +166,12 @@ if [ -d "${DEST}" ]; then
   DOMAIN="gui/$(id -u)"
   launchctl bootout "${DOMAIN}/${PLIST_LABEL}" 2>/dev/null || true
   sleep 1
+
+  if sabbel_tcc_reset_needed "${DEST}" "${TMPDIR}/${APP_NAME}"; then
+    info "The app's signature changed; resetting its Accessibility and Microphone permissions..."
+    sabbel_reset_tcc
+    TCC_RESET=true
+  fi
 
   rm -rf "${DEST}"
 fi
@@ -192,9 +251,15 @@ printf "\n"
 if [ "${IS_UPDATE}" = true ]; then
   success "Sabbel has been updated and launched."
   printf "\n"
-  printf "  If macOS asks for Accessibility and Microphone permissions again, that\n"
-  printf "  is because the app's signature changed (expected once, when updating\n"
-  printf "  from a 0.5.x build). Later updates keep your permissions.\n"
+  if [ "${TCC_RESET}" = true ]; then
+    printf "  The app's signature changed (expected once, when updating from a\n"
+    printf "  0.5.x build), so its Accessibility and Microphone permissions were\n"
+    printf "  reset. Grant them again when macOS asks; the Sabbel menu shows what\n"
+    printf "  is still missing. Later updates keep your permissions.\n"
+  else
+    printf "  Same signature as before: your Accessibility and Microphone\n"
+    printf "  permissions were kept.\n"
+  fi
 else
   success "Sabbel has been installed to ${BOLD}${DEST}${RESET} and launched."
   printf "\n"

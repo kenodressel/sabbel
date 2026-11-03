@@ -90,9 +90,20 @@ build-app-python: icons/Sabbel.icns ## Build the legacy Python Sabbel.app with p
 build-app: native-build icons/Sabbel.icns ## Build and sign dist/Sabbel.app (Swift); VERSION=1.2.3, SABBEL_SIGN_IDENTITY=...
 	@scripts/bundle_app.sh $(VERSION)
 
-install-app: build-app ## Install Sabbel.app into ~/Applications
+# Permissions are reset only when the installed app's signature differs from
+# the new one (ad hoc, or another designated requirement); see install.sh.
+install-app: build-app ## Install Sabbel.app into ~/Applications (resets permissions only if the signature changed)
 	@pkill -x "Sabbel" 2>/dev/null || true
 	@launchctl bootout $(LAUNCH_SERVICE) 2>/dev/null || true
+	@if [ -d "$(INSTALL_APP_DIR)" ]; then \
+		SABBEL_INSTALL_LIB=1; export SABBEL_INSTALL_LIB; . ./install.sh; \
+		if sabbel_tcc_reset_needed "$(INSTALL_APP_DIR)" dist/Sabbel.app; then \
+			sabbel_reset_tcc; \
+			echo "✓ Signature changed: Accessibility + Microphone permissions reset, grant them again on launch"; \
+		else \
+			echo "✓ Same signature: Accessibility + Microphone permissions kept"; \
+		fi; \
+	fi
 	@mkdir -p $(HOME)/Applications
 	@rm -rf $(INSTALL_APP_DIR)
 	@cp -R dist/Sabbel.app $(INSTALL_APP_DIR)
@@ -167,8 +178,9 @@ clean: ## Remove all build artifacts (forces full rebuild)
 native-build: ## Build the native Swift package (release)
 	$(SWIFT) build --package-path native -c release
 
-native-test: ## Run the native Swift tests and the eval-scorer check
+native-test: ## Run the native Swift tests, the eval-scorer check and the installer's permission test
 	python3 -I scripts/test_eval_score.py
+	sh scripts/test_install_tcc.sh
 	$(SWIFT) test --package-path native
 
 native-test-model: ## Run the native tests against the real Parakeet model (slow, needs the model and the Anna voice)

@@ -87,6 +87,8 @@ On first launch:
 - macOS asks for **Accessibility** and **Microphone** permissions
 - The Parakeet model (~2.3GB) downloads automatically in the background
 
+Updates keep those permissions as long as the app's signature stays the same. When it changed (once, when updating from a 0.5.x build), the installer resets them so macOS asks again, instead of showing them as granted while denying them.
+
 ## How It Works
 
 | Action | What happens |
@@ -193,7 +195,7 @@ make restart             # Reload the already installed app during normal dev
 make reset-permissions   # Reset Accessibility + Microphone permissions manually
 ```
 
-Note: `make build-app` signs with `$SABBEL_SIGN_IDENTITY`. If that is unset it uses the "Sabbel Release" certificate when your keychain has it (see below), and signs ad hoc otherwise. An ad-hoc signature changes with every build, so macOS forgets the Accessibility and Microphone grants after each rebuild; run `make reset-permissions` to clear stale entries.
+Note: `make build-app` signs with `$SABBEL_SIGN_IDENTITY`. If that is unset it uses the "Sabbel Release" certificate when your keychain has it (see below), and signs ad hoc otherwise. `make install-app` and `install.sh` keep the Accessibility and Microphone grants when the installed app and the new one have the same designated requirement ("Sabbel Release" on both sides), and reset them when the installed app is ad hoc signed or signed differently, so macOS asks again. An ad-hoc signature changes with every build, so without the certificate every `make install-app` resets them. `make reset-permissions` resets them by hand.
 
 ### Signing releases
 

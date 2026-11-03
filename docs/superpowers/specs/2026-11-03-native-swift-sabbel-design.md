@@ -293,10 +293,20 @@ modules explain why, and the Swift version keeps those reasons.
   - a `v*` tag still builds, signs and publishes on its own, as today;
   - the release job refuses to publish an ad-hoc-signed app;
   - dry runs (`workflow_dispatch`) and PR CI sign ad hoc and never publish.
-- **No permission reset on update** (*my call*). Today `install.sh` and
-  `make install-app` run `tccutil reset` on every install. With a stable
+- **Permissions are reset only when the signature changed** (ruling R31,
+  replacing "no permission reset on update"). The Python `install.sh` and
+  `make install-app` ran `tccutil reset` on every install; with a stable
   signature that would throw away the permissions the certificate is meant
-  to keep. The reset goes, except for `make reset-permissions`.
+  to keep. Dropping the reset entirely left upgraders from an ad-hoc 0.5.x
+  build with grants that look on but are denied. So `install.sh` and
+  `make install-app` reset Accessibility and Microphone for `com.sabbel.app`
+  only when the installed app is ad hoc signed (`codesign -dv` shows
+  `Signature=adhoc` or no `Authority`) or its designated requirement
+  (`codesign -d -r-`) differs from the new app's. A "Sabbel Release" →
+  "Sabbel Release" update keeps the grants. The decision is one POSIX sh
+  function in `install.sh`, tested with stubbed `codesign` output by
+  `scripts/test_install_tcc.sh` (part of `make native-test`).
+  `make reset-permissions` still resets by hand.
 - **Local builds** from `make install-app` are signed with "Sabbel Release"
   when the certificate is in the keychain, and ad hoc otherwise, with a
   warning.
