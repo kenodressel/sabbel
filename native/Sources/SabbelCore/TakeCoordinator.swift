@@ -47,6 +47,8 @@ public final class TakeCoordinator {
         let live: Task<Void, Never>
         let target: FocusTarget?
         let secure: Bool
+        /// When the hotkey went down, on `now`'s clock.
+        let pressed: TimeInterval
     }
 
     private let audio: any AudioSource
@@ -54,6 +56,7 @@ public final class TakeCoordinator {
     private let ui: any SabbelUI
     private let makeTranscriber: @Sendable () -> StreamingTranscriber
     private let errorClearDelay: Duration
+    private let now: @Sendable () -> TimeInterval
     private let log: (@Sendable (String) -> Void)?
     private let jobs: AsyncStream<PasteJob>.Continuation
 
@@ -97,16 +100,19 @@ public final class TakeCoordinator {
     /// - Parameters:
     ///   - errorClearDelay: how long an error stays in the menu bar before it
     ///     clears back to idle.
+    ///   - now: a monotonic clock in seconds, for the hold time of a take.
     ///   - log: receives the decisions `app.py` logs, never the dictated text.
     public init(settings: SabbelSettings, paths: SabbelPaths, audio: any AudioSource, focus: any FocusProbe,
                 injector: Injector, makeTranscriber: @escaping @Sendable () -> StreamingTranscriber,
                 ui: any SabbelUI, errorClearDelay: Duration = .seconds(2),
+                now: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
                 log: (@Sendable (String) -> Void)? = nil) {
         self.audio = audio
         self.focus = focus
         self.ui = ui
         self.makeTranscriber = makeTranscriber
         self.errorClearDelay = errorClearDelay
+        self.now = now
         self.log = log
         historyEnabled = settings.historyEnabled
         audioDevice = settings.audioDevice
@@ -163,6 +169,7 @@ public final class TakeCoordinator {
         }
         guard capture == nil else { return }
         info("Recording start requested")
+        let pressed = now()
 
         // Snapshot the target app now: transcription takes seconds and the user
         // often switches windows while it runs.
@@ -219,7 +226,7 @@ public final class TakeCoordinator {
         }
 
         capture = Capture(transcriber: transcriber, samples: sink, feeder: feeder, live: live,
-                          target: target, secure: secure)
+                          target: target, secure: secure, pressed: pressed)
         // A new take replaces an error still on display.
         clearError()
         render()
@@ -236,7 +243,7 @@ public final class TakeCoordinator {
         take.samples.finish()
         pending += 1
         jobs.yield(PasteJob(transcriber: take.transcriber, feeder: take.feeder, target: take.target,
-                            secure: take.secure, saveHistory: historyEnabled))
+                            secure: take.secure, saveHistory: historyEnabled, held: now() - take.pressed))
         render()
     }
 
@@ -378,6 +385,8 @@ struct PasteJob: Sendable {
     /// The take started in a password field.
     let secure: Bool
     let saveHistory: Bool
+    /// How long the hotkey was held, press to release.
+    let held: TimeInterval
 }
 
 /// What became of a released take.
@@ -421,8 +430,9 @@ actor PasteLine {
 
     private func process(_ job: PasteJob) async -> TakeResult {
         let stats = await job.feeder.value
-        let verdict = stats.verdict(minDuration: minDuration)
-        log?("Processing take: duration=\(String(format: "%.3f", stats.duration))s verdict=\(verdict)")
+        let verdict = stats.verdict(minDuration: minDuration, heldFor: job.held)
+        log?("Processing take: duration=\(String(format: "%.3f", stats.duration))s "
+             + "held=\(String(format: "%.3f", job.held))s verdict=\(verdict)")
 
         // Judged before the text is awaited, but a rejected take still finishes,
         // so its transcriber's live stream closes.

@@ -25,7 +25,13 @@ public struct TakeStats: Sendable {
 
     /// Checked in order: too short, dead stream (exact digital silence, i.e. the
     /// mic delivered nothing), no speech (RMS not strictly above the threshold).
-    public func verdict(minDuration: TimeInterval, rmsThreshold: Float = 0.003) -> TakeVerdict {
+    ///
+    /// `heldFor` is how long the hotkey was held. A hold of at least
+    /// `minDuration` that produced no sample at all is a capture that died
+    /// before its first buffer: a dead stream, not a short take. Without the
+    /// hold time it would read as "Too short", with no notice to say the mic failed.
+    public func verdict(minDuration: TimeInterval, heldFor: TimeInterval = 0, rmsThreshold: Float = 0.003) -> TakeVerdict {
+        if count == 0 && heldFor >= minDuration { return .deadStream }
         if count < Int(minDuration * sampleRate) || count == 0 { return .tooShort }
         if maxAbs == 0 { return .deadStream }
         let rms = (sumSquares / Double(count)).squareRoot()

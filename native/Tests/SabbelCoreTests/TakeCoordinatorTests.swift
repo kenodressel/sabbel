@@ -14,6 +14,8 @@ final class Harness {
     let ui = FakeUI()
     let recognizers: RecognizerQueue
     let coordinator: TakeCoordinator
+    /// The coordinator's clock, in seconds; tests advance it to set a hold time.
+    let clock = LockedBox<TimeInterval>(0)
 
     static let target = FocusTarget(pid: 101, name: "Editor")
 
@@ -37,7 +39,7 @@ final class Harness {
             settings: settings, paths: paths, audio: audio, focus: focus,
             injector: Injector(env: env, ownPID: focus.ownPID),
             makeTranscriber: { StreamingTranscriber(recognizer: queue.take()) },
-            ui: ui, errorClearDelay: .milliseconds(30))
+            ui: ui, errorClearDelay: .milliseconds(30), now: { [clock] in clock.value })
         coordinator.modelState = modelState
         coordinator.permissionsReady = permissionsReady
     }
@@ -183,6 +185,29 @@ final class Harness {
         #expect(h.ui.shows.contains { $0.icon == .error("No signal") && $0.status == "No signal" })
         #expect(h.ui.notices == [.deadStream])
         #expect(h.env.calls.isEmpty)
+    }
+
+    /// The capture died before its first buffer: the key was held for a second
+    /// but not one sample arrived. That is no signal, not a short take.
+    @Test func noSamplesOverALongHoldIsNoSignal() async {
+        let h = Harness()
+        h.coordinator.handle(.start)
+        h.clock.value += 1.0
+        h.coordinator.handle(.stop)
+        await h.coordinator.waitUntilIdle()
+        #expect(h.ui.shows.contains { $0.icon == .error("No signal") && $0.status == "No signal" })
+        #expect(h.ui.notices == [.deadStream])
+        #expect(h.env.calls.isEmpty)
+    }
+
+    @Test func noSamplesOverAShortHoldIsTooShort() async {
+        let h = Harness()
+        h.coordinator.handle(.start)
+        h.clock.value += 0.2
+        h.coordinator.handle(.stop)
+        await h.coordinator.waitUntilIdle()
+        #expect(h.ui.shows.contains { $0.icon == .error("Too short") })
+        #expect(h.ui.notices.isEmpty)
     }
 
     @Test func noSpeechShowsNoAudio() async {

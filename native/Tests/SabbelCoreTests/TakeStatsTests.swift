@@ -34,4 +34,20 @@ import Testing
         #expect(stats(0.004, seconds: 1, chunks: 10).verdict(minDuration: 0.5) == .accept)
         #expect(stats(0.004, seconds: 1, chunks: 10).duration == 1)
     }
+
+    /// The key was held long enough but the mic never delivered a buffer: the
+    /// capture died before it started, which is a dead stream, not a short take.
+    @Test func noSamplesOverALongHoldIsDeadStream() {
+        #expect(TakeStats().verdict(minDuration: 0.5, heldFor: 1.0) == .deadStream)
+        #expect(TakeStats().verdict(minDuration: 0.5, heldFor: 0.5) == .deadStream)
+    }
+
+    @Test func noSamplesOverAShortHoldIsTooShort() {
+        #expect(TakeStats().verdict(minDuration: 0.5, heldFor: 0.2) == .tooShort)
+    }
+
+    /// Some audio arrived: the hold time does not override the sample count.
+    @Test func fewSamplesOverALongHoldIsStillTooShort() {
+        #expect(stats(0.1, seconds: 0.2).verdict(minDuration: 0.5, heldFor: 2.0) == .tooShort)
+    }
 }
