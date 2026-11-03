@@ -128,6 +128,8 @@ public protocol PasteEnvironment: Sendable {
     /// the time the event is delivered, which is not necessarily where the user
     /// was speaking.
     func postCommandV(to pid: Int32?)
+    /// Synthesise the Return key (down and up), posted like `postCommandV`.
+    func postReturn(to pid: Int32?)
     func sleep(_ seconds: TimeInterval)
     /// A monotonic clock.
     func now() -> TimeInterval
@@ -299,6 +301,28 @@ public struct Injector: Sendable {
 
         env.restoreClipboard(snapshot)
         return .pasted
+    }
+
+    // MARK: Return key
+
+    /// Presses Return in `target` after `settle` seconds (time for the app to
+    /// insert pasted text). Refused, with nothing posted, when the target is no
+    /// longer frontmost, Sabbel is frontmost or the focused field is a password
+    /// field. Returns whether Return was pressed.
+    public func pressReturn(target: FocusTarget?, settle: TimeInterval = 0) -> Bool {
+        if settle > 0 { env.sleep(settle) }
+        guard focusTargetIsActive(target), !sabbelIsFrontmost() else {
+            info("Send command: focus changed — Return not pressed")
+            return false
+        }
+        if Self.isSecure(env.focusedElement()) {
+            info("Send command: secure text field — Return not pressed")
+            return false
+        }
+        // A still-held Option would turn Return into Option+Return.
+        waitForModifiersReleased(timeout: modifierTimeout)
+        env.postReturn(to: target?.pid)
+        return true
     }
 
     // MARK: focus tracking

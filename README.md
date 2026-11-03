@@ -136,6 +136,7 @@ recent = 10            # Dictations kept in memory for the Recent menu (0-50,
 [text]
 tidy = true            # Remove fillers ("ähm", "uh") and accidental repeats.
 app_rules = true       # Per-app formatting, e.g. no trailing period in Slack.
+voice_commands = true  # Spoken "neue Zeile" / "new paragraph" and "press enter".
 ```
 
 `app_rules` drops the final full stop in chat, terminal and IDE apps (Slack, Discord, Teams, WhatsApp, Telegram, Signal, Messages; Terminal, iTerm, Ghostty, Warp, kitty, Alacritty, WezTerm; VS Code, Cursor, Zed, JetBrains, Xcode, Windsurf). Question marks, exclamation marks, ellipses and abbreviations ("z. B.", "usw.") keep theirs; other apps are untouched.
@@ -144,6 +145,16 @@ app_rules = true       # Per-app formatting, e.g. no trailing period in Slack.
 accidental repeats of two to four words ("at the at the" becomes "at the").
 "um" goes only when it is set off on both sides ("Um, I think", "so, um, yes"),
 since it is also a German word ("um 5 Uhr", "es geht um, äh, …"). A single doubled word is always kept.
+
+`voice_commands` turns spoken commands into formatting and a key press, in German
+and English, in dictations only. "neue Zeile" / "new line" becomes a line break,
+"neuer Absatz" / "new paragraph" a blank line; the punctuation the recognizer puts
+around the command goes with it ("Punkt eins, neue Zeile, Punkt zwei" pastes as
+two lines). At the very end of a dictation, "press enter", "send message",
+"press return", "Enter drücken" or "Return drücken" is cut off and Sabbel presses
+Return after the paste (only when the text was really pasted). Saying only the
+send command presses Return without pasting. Set it to `false` and everything
+is pasted as spoken.
 
 Nothing in this file can stop Sabbel from starting. A value Sabbel cannot use
 is ignored in favour of its default — a malformed file falls back entirely —

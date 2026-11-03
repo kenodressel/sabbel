@@ -50,7 +50,8 @@ import SabbelSystem
              + "history_enabled=\(settings.historyEnabled) history_max_bytes=\(settings.historyMaxBytes) "
              + "audio_device=\(settings.audioDevice ?? "System Default") "
              + "history_recent=\(settings.recentLimit) "
-             + "text_tidy=\(settings.tidyText) text_app_rules=\(settings.appRules)")
+             + "text_tidy=\(settings.tidyText) text_app_rules=\(settings.appRules) "
+             + "text_voice_commands=\(settings.voiceCommands)")
 
         let notifier = Notifier(log: info)
         notifier.requestAuthorization()

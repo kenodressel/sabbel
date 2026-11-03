@@ -141,7 +141,8 @@ public final class TakeCoordinator {
         self.jobs = jobs
         let line = PasteLine(injector: injector,
                              history: HistoryLog(url: paths.historyLog, maxBytes: settings.historyMaxBytes),
-                             minDuration: settings.minDuration, pipeline: pipeline, log: log)
+                             minDuration: settings.minDuration, pipeline: pipeline,
+                             voiceCommands: settings.voiceCommands, log: log)
         self.line = line
         let deliver: @Sendable (TakeResult) async -> Void = { [weak self] result in
             await self?.finished(result)
@@ -309,6 +310,8 @@ public final class TakeCoordinator {
             showError("Error")
         case .notRecognized:
             showError("Not recognized")
+        case .sentReturn:
+            render()
         case .outcome(let outcome):
             if let notice = Self.notice(for: outcome) { ui.notify(notice) }
             render()
@@ -502,6 +505,8 @@ enum TakeResult: Sendable {
     /// The final recognition threw.
     case failed
     case notRecognized
+    /// A send-only dictation: nothing pasted; Return pressed, or refused (focus moved, password field).
+    case sentReturn(pressed: Bool)
     /// What became of the paste; `.refusedSecure` also for a take that started in a password field.
     case outcome(InjectOutcome)
     /// The text reached the injector (and was not refused for a password field):
@@ -529,14 +534,19 @@ actor PasteLine {
     private let history: HistoryLog
     private let minDuration: TimeInterval
     private let pipeline: TextPipeline
+    private let voiceCommands: Bool
     private let log: (@Sendable (String) -> Void)?
 
+    /// Time for the target app to insert pasted text before Return is pressed.
+    static let returnSettle: TimeInterval = 0.08
+
     init(injector: Injector, history: HistoryLog, minDuration: TimeInterval, pipeline: TextPipeline,
-         log: (@Sendable (String) -> Void)?) {
+         voiceCommands: Bool = true, log: (@Sendable (String) -> Void)?) {
         self.injector = injector
         self.history = history
         self.minDuration = minDuration
         self.pipeline = pipeline
+        self.voiceCommands = voiceCommands
         self.log = log
     }
 
@@ -578,8 +588,17 @@ actor PasteLine {
             return .failed
         }
         // A take of nothing but fillers ends up empty here, like silence.
-        let text = pipeline.process(recognized, target: job.target)
+        // The send command goes first, so the pipeline (app rules included)
+        // sees the text without it.
+        let (spoken, send) = voiceCommands ? VoiceCommands.extractSend(recognized) : (recognized, false)
+        let text = pipeline.process(spoken, target: job.target)
         if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if send {
+                // Only the send command: Return without a paste.
+                let pressed = injector.pressReturn(target: job.target)
+                if pressed { log?("Send command: Return pressed") }
+                return .sentReturn(pressed: pressed)
+            }
             log?("Recording rejected: empty transcription")
             return .notRecognized
         }
@@ -588,6 +607,10 @@ actor PasteLine {
              + (text == recognized ? "" : " after rewrite=\(text.count)"))
         let outcome = injector.inject(text, target: job.target)
         log?("Inject outcome: \(outcome.rawValue)")
+        if send && outcome == .pasted
+            && injector.pressReturn(target: job.target, settle: Self.returnSettle) {
+            log?("Send command: Return pressed")
+        }
         // Only once the outcome is known: a dictation refused by a password field
         // must not end up on disk either.
         if outcome != .refusedSecure && job.saveHistory {
@@ -625,7 +648,9 @@ actor PasteLine {
             log?("Re-transcription error: \(error)")
             return .failed
         }
-        let text = pipeline.process(recognized, target: target)
+        // The result is copied, not pasted, so a send command is just dropped.
+        let spoken = voiceCommands ? VoiceCommands.extractSend(recognized).text : recognized
+        let text = pipeline.process(spoken, target: target)
         if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             log?("Re-transcription rejected: empty transcription")
             return .notRecognized
