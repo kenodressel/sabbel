@@ -5,7 +5,7 @@ on:
     tags:
       - "v*"
   # Build-only dry run: builds and verifies the bundle (ad hoc signed) without
-  # publishing anything. The publish step below is gated on an actual tag.
+  # publishing anything. Signing and publishing are gated on a tag *push*.
   workflow_dispatch:
 
 permissions:
@@ -35,9 +35,10 @@ jobs:
         timeout-minutes: 20
 
       - name: Import signing certificate
-        # Tags only. A dry run builds ad hoc, so a branch can never produce
-        # something that looks like a release.
-        if: startsWith(github.ref, 'refs/tags/v')
+        # A tag push only. A dry run builds ad hoc, so a branch can never produce
+        # something that looks like a release; the event check keeps a manual
+        # dispatch run on a tag ref a dry run too.
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         env:
           SABBEL_SIGN_P12: ${{ secrets.SABBEL_SIGN_P12 }}
           SABBEL_SIGN_P12_PASSWORD: ${{ secrets.SABBEL_SIGN_P12_PASSWORD }}
@@ -62,16 +63,16 @@ jobs:
           echo "SABBEL_SIGN_IDENTITY=Sabbel Release" >> "$GITHUB_ENV"
 
       - name: Build Sabbel.app
-        # A dry run has no tag and builds "dev" (version 0.0.0), ad hoc signed.
+        # A dry run builds "dev" (version 0.0.0), ad hoc signed.
         run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+          if [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF" == refs/tags/v* ]]; then
             make build-app VERSION="${GITHUB_REF_NAME#v}"
           else
             make build-app
           fi
 
       - name: Refuse ad-hoc signature
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         run: |
           codesign -dv dist/Sabbel.app 2>&1 | grep -q "Authority=Sabbel Release" \
             || { echo "✗ dist/Sabbel.app is not signed by Sabbel Release"; codesign -dv dist/Sabbel.app 2>&1; exit 1; }
@@ -110,10 +111,11 @@ jobs:
           ditto -ck --keepParent Sabbel.app Sabbel.zip
 
       - name: Create GitHub Release
-        # Only on a real tag. A workflow_dispatch run stops after the zip. Every
-        # non-prerelease v* tag becomes the "latest" release that install.sh and
-        # the in-app update check serve; a tag with "-" is a prerelease.
-        if: startsWith(github.ref, 'refs/tags/v')
+        # Only on a tag push. A workflow_dispatch run stops after the zip, even
+        # when dispatched on a tag ref. Every non-prerelease v* tag becomes the
+        # "latest" release that install.sh and the in-app update check serve; a
+        # tag with "-" is a prerelease.
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v3
         with:
           files: dist/Sabbel.zip
