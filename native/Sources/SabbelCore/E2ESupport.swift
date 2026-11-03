@@ -246,6 +246,11 @@ public final class RecordingPasteEnvironment: PasteEnvironment, @unchecked Senda
         state.withLock { $0.take.commandV.append(.init(at: at, frontmostPID: front)) }
     }
 
+    public func postReturn(to pid: Int32?) {
+        if disarmed { return }
+        base.postReturn(to: pid)
+    }
+
     public func focusedElement() -> FocusedElement? { base.focusedElement() }
     public func focusedValue() -> String? { base.focusedValue() }
     public func captureClipboard() -> ClipboardSnapshot { base.captureClipboard() }

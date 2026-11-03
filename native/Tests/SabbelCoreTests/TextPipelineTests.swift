@@ -37,3 +37,34 @@ import Testing
         #expect(plain.process("Ähm, wir nutzen Kuber Netties.", target: slack) == "Ähm, wir nutzen Kubernetes.")
     }
 }
+
+@Suite struct VoiceCommandPipelineTests {
+    private func standard(_ settings: SabbelSettings) -> TextPipeline {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sabbel-pipeline-\(UUID().uuidString)")
+        return TextPipeline.standard(settings: settings, paths: SabbelPaths(configDir: dir), log: { _ in })
+    }
+
+    @Test func commandsRunAfterTheGlossaryAndBeforeTidyAndAppRules() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sabbel-pipeline-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let paths = SabbelPaths(configDir: dir)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try "Kubernetes: Kuber Netties\n".write(to: paths.glossary, atomically: true, encoding: .utf8)
+        let pipeline = TextPipeline.standard(settings: SabbelSettings(), paths: paths, log: { _ in })
+        let slack = FocusTarget(pid: 7, name: "Slack", bundleID: "com.tinyspeck.slackmacgap")
+        #expect(pipeline.process("Ähm, Kuber Netties, neue Zeile, läuft.", target: slack) == "Kubernetes\nläuft")
+        #expect(pipeline.process("Ähm, Kuber Netties, neue Zeile, läuft.", target: nil) == "Kubernetes\nläuft.")
+    }
+
+    @Test func switchedOffLeavesCommandsAlone() {
+        var off = SabbelSettings()
+        off.voiceCommands = false
+        #expect(standard(off).process("Eins, neue Zeile, zwei", target: nil) == "Eins, neue Zeile, zwei")
+        #expect(standard(SabbelSettings()).process("Eins, neue Zeile, zwei", target: nil) == "Eins\nzwei")
+    }
+
+    @Test func lineBreaksSurviveTidy() {
+        #expect(standard(SabbelSettings()).process("Eins. Neue Zeile. Äh, zwei. Neuer Absatz. Drei", target: nil)
+                == "Eins.\nZwei.\n\nDrei")
+    }
+}

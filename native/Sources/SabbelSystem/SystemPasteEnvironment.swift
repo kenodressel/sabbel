@@ -108,12 +108,16 @@ public final class SystemPasteEnvironment: PasteEnvironment, @unchecked Sendable
 
     // MARK: events
 
-    public func postCommandV(to pid: Int32?) {
+    public func postCommandV(to pid: Int32?) { postKey(9, flags: .maskCommand, to: pid) }
+
+    public func postReturn(to pid: Int32?) { postKey(36, flags: [], to: pid) }
+
+    private func postKey(_ virtualKey: CGKeyCode, flags: CGEventFlags, to pid: Int32?) {
         let source = CGEventSource(stateID: .hidSystemState)
-        guard let down = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: true),
-              let up = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: false) else { return }
-        down.flags = .maskCommand
-        up.flags = .maskCommand
+        guard let down = CGEvent(keyboardEventSource: source, virtualKey: virtualKey, keyDown: true),
+              let up = CGEvent(keyboardEventSource: source, virtualKey: virtualKey, keyDown: false) else { return }
+        down.flags = flags
+        up.flags = flags
         if let pid {
             down.postToPid(pid)
             Thread.sleep(forTimeInterval: 0.01)

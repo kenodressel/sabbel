@@ -41,11 +41,28 @@ private func load(toml: String? = nil, prefs: String? = nil) -> (SabbelSettings,
         #expect(log.isEmpty)
     }
 
+    @Test func recentLimitDefaultsToTenAndAcceptsZeroToFifty() {
+        #expect(SabbelSettings().recentLimit == 10)
+        for (value, expected) in [(0, 0), (50, 50), (7, 7)] {
+            let (s, log) = load(toml: "[history]\nrecent = \(value)")
+            #expect(s.recentLimit == expected && log.isEmpty)
+        }
+    }
+
     @Test func textSwitchesDefaultOnAndCanBeTurnedOff() {
-        #expect(SabbelSettings().tidyText && SabbelSettings().appRules)
-        let (s, log) = load(toml: "[text]\ntidy = false\napp_rules = false")
-        #expect(!s.tidyText && !s.appRules)
+        #expect(SabbelSettings().tidyText && SabbelSettings().appRules && SabbelSettings().voiceCommands)
+        let (s, log) = load(toml: "[text]\ntidy = false\napp_rules = false\nvoice_commands = false")
+        #expect(!s.tidyText && !s.appRules && !s.voiceCommands)
         #expect(log.isEmpty)
+    }
+
+    @Test func overlayStyleDefaultsToMinimal() {
+        #expect(SabbelSettings().overlayStyle == .minimal)
+        for (raw, style) in [("text", OverlayStyle.text), ("off", .off), ("minimal", .minimal), (" Text ", .text)] {
+            let (s, log) = load(toml: "[overlay]\nstyle = \"\(raw)\"")
+            #expect(s.overlayStyle == style)
+            #expect(log.isEmpty)
+        }
     }
 
     @Test func minDurationAtTheFloorIsAccepted() {
@@ -65,8 +82,15 @@ private func load(toml: String? = nil, prefs: String? = nil) -> (SabbelSettings,
         ("[history]\nmax_bytes = -1", "max_bytes"),
         ("[history]\nmax_bytes = 1.5", "max_bytes"),
         ("[history]\nenabled = \"yes\"", "enabled"),
+        ("[history]\nrecent = 51", "recent"),
+        ("[history]\nrecent = -1", "recent"),
+        ("[history]\nrecent = 2.5", "recent"),
         ("[text]\ntidy = 1", "tidy"),
         ("[text]\napp_rules = \"no\"", "app_rules"),
+        ("[text]\nvoice_commands = 1", "voice_commands"),
+        ("[overlay]\nstyle = \"fancy\"", "style"),
+        ("[overlay]\nstyle = true", "style"),
+        ("[overlay]\nstyle = \"\"", "style"),
     ])
     func invalidValueFallsBackAndKeepsOthers(toml: String, key: String) {
         let extra = key == "hotkey" ? "" : "[general]\nhotkey = \"f5\"\n"

@@ -130,11 +130,24 @@ min_duration_seconds = 0.5
 enabled = false        # Seed value. The menu toggle is the primary control
                        # and overrides this once flipped.
 max_bytes = 1000000    # Rotate log to .1 once it grows beyond this.
+recent = 10            # Dictations kept in memory for the Recent menu (0-50,
+                       # 0 turns Recent off).
 
 [text]
 tidy = true            # Remove fillers ("ähm", "uh") and accidental repeats.
 app_rules = true       # Per-app formatting, e.g. no trailing period in Slack.
+voice_commands = true  # Spoken "neue Zeile" / "new paragraph" and "press enter".
+
+[overlay]
+style = "minimal"      # Floating recording overlay: "minimal", "text" or "off".
 ```
+
+While you hold the key, a small capsule floats at the bottom of the screen
+with the mouse pointer: a red dot, level bars and the elapsed time. After you
+release it shows a spinner, then "Pasted", "Copied" or what went wrong, and
+fades out. It never takes focus or catches clicks. `style = "text"` also shows
+the last two lines of live text under the bars ("•••" in password fields);
+`"off"` hides it. The "Show Live Text" window is independent of this setting.
 
 `app_rules` drops the final full stop in chat, terminal and IDE apps (Slack, Discord, Teams, WhatsApp, Telegram, Signal, Messages; Terminal, iTerm, Ghostty, Warp, kitty, Alacritty, WezTerm; VS Code, Cursor, Zed, JetBrains, Xcode, Windsurf). Question marks, exclamation marks, ellipses and abbreviations ("z. B.", "usw.") keep theirs; other apps are untouched.
 
@@ -143,11 +156,23 @@ accidental repeats of two to four words ("at the at the" becomes "at the").
 "um" goes only when it is set off on both sides ("Um, I think", "so, um, yes"),
 since it is also a German word ("um 5 Uhr", "es geht um, äh, …"). A single doubled word is always kept.
 
+`voice_commands` turns spoken commands into formatting and a key press, in German
+and English, in dictations only. "neue Zeile" / "new line" becomes a line break,
+"neuer Absatz" / "new paragraph" a blank line; the punctuation the recognizer puts
+around the command goes with it ("Punkt eins, neue Zeile, Punkt zwei" pastes as
+two lines). At the very end of a dictation, "press enter", "send message",
+"press return", "Enter drücken" or "Return drücken" is cut off and Sabbel presses
+Return after the paste (only when the text was really pasted). Saying only the
+send command presses Return without pasting. Set it to `false` and everything
+is pasted as spoken.
+
 Nothing in this file can stop Sabbel from starting. A value Sabbel cannot use
 is ignored in favour of its default — a malformed file falls back entirely —
 and the reason is written to `/tmp/sabbel-runtime.log`. Entries from older
 versions (`[model] repo`, `[injection]`, `[general] language`) are ignored the
 same way; you can delete them.
+
+**Recent dictations:** the **Recent** submenu lists your last dictations (newest first, text, app and time). Click one to copy it to the clipboard; **Paste Last Dictation** pastes the newest into the app you are in; **Transcribe Last Recording Again** runs the recognizer once more over the audio of the last take (up to 10 minutes) and copies the result, which helps when the first pass came back empty or wrong. Everything is kept in memory only, never written to disk, and gone when Sabbel quits. Dictations started in a password field are never kept. Set `[history] recent = 0` to switch the feature off.
 
 **Glossary:** the recognizer sometimes misspells English tech terms inside German speech ("Kuber Netties", "Git Hub"). Sabbel menu → **Edit Glossary…** opens `~/.config/sabbel/glossary.txt` (created with a commented template) so you can fix them with replacement rules. Edits apply on the next take, no restart.
 

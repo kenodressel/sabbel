@@ -92,6 +92,12 @@ final class FakeUI: SabbelUI {
     func show(_ icon: IconState, status: String) { shows.append((icon, status)) }
     func notify(_ notice: Notice) { notices.append(notice) }
     func live(_ text: LiveText, masked: Bool) { lives.append((text, masked)) }
+
+    private(set) var levels: [Double] = []
+    private(set) var takes: [TakeEvent] = []
+
+    func level(_ level: Double) { levels.append(level) }
+    func take(_ event: TakeEvent) { takes.append(event) }
 }
 
 /// Hands out one recognizer per take, in order; the last one repeats.

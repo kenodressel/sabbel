@@ -43,18 +43,25 @@ public struct SabbelSettings: Equatable, Sendable {
     public static let minDurationFloor: TimeInterval = 0.3
     public var historyEnabled = false
     public var historyMaxBytes = 1_000_000
+    /// How many recent dictations the menu keeps in memory; 0 turns the feature off.
+    public var recentLimit = 10
     public var audioDevice: String? = nil
     /// Remove fillers ("ähm", "uh") and accidental repeats before pasting.
     public var tidyText = true
     /// Per-app formatting, e.g. no trailing period in chat and terminal apps.
     public var appRules = true
+    /// Spoken formatting ("neue Zeile") and the send command ("press enter").
+    public var voiceCommands = true
+    /// The floating recording overlay shown during a take.
+    public var overlayStyle: OverlayStyle = .minimal
 
     public init() {}
 
     private static let known: [String: Set<String>] = [
         "general": ["hotkey"], "audio": ["min_duration_seconds"],
-        "history": ["enabled", "max_bytes"],
-        "text": ["tidy", "app_rules"],
+        "history": ["enabled", "max_bytes", "recent"],
+        "text": ["tidy", "app_rules", "voice_commands"],
+        "overlay": ["style"],
     ]
     private static let obsolete: [String: Set<String>] = [
         "model": ["repo"], "injection": ["pre_paste_delay", "post_paste_delay"],
@@ -116,6 +123,10 @@ public struct SabbelSettings: Equatable, Sendable {
             if case .integer(let i) = raw, i > 0 { historyMaxBytes = i }
             else { reject("history", "max_bytes", raw, "expected a whole number > 0", historyMaxBytes) }
         }
+        if let raw = doc["history"]?["recent"] {
+            if case .integer(let i) = raw, (0...50).contains(i) { recentLimit = i }
+            else { reject("history", "recent", raw, "expected a whole number from 0 to 50", recentLimit) }
+        }
         if let raw = doc["text"]?["tidy"] {
             if case .bool(let b) = raw { tidyText = b }
             else { reject("text", "tidy", raw, "expected true or false", tidyText) }
@@ -123,6 +134,19 @@ public struct SabbelSettings: Equatable, Sendable {
         if let raw = doc["text"]?["app_rules"] {
             if case .bool(let b) = raw { appRules = b }
             else { reject("text", "app_rules", raw, "expected true or false", appRules) }
+        }
+        if let raw = doc["text"]?["voice_commands"] {
+            if case .bool(let b) = raw { voiceCommands = b }
+            else { reject("text", "voice_commands", raw, "expected true or false", voiceCommands) }
+        }
+        if let raw = doc["overlay"]?["style"] {
+            if case .string(let v) = raw,
+               let style = OverlayStyle(rawValue: v.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) {
+                overlayStyle = style
+            } else {
+                let names = OverlayStyle.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
+                reject("overlay", "style", raw, "expected one of \(names)", overlayStyle.rawValue)
+            }
         }
     }
 

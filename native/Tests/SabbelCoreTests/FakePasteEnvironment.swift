@@ -26,6 +26,7 @@ final class FakePasteEnvironment: PasteEnvironment, @unchecked Sendable {
         case clipboardChangeCount
         case clipboardString
         case postCommandV(Int32?)
+        case postReturn(Int32?)
         case sleep(TimeInterval)
         case now
     }
@@ -199,6 +200,10 @@ final class FakePasteEnvironment: PasteEnvironment, @unchecked Sendable {
 
     func postCommandV(to pid: Int32?) {
         _ = record(.postCommandV(pid), key: "postCommandV")
+    }
+
+    func postReturn(to pid: Int32?) {
+        _ = record(.postReturn(pid), key: "postReturn")
     }
 
     func sleep(_ seconds: TimeInterval) {
