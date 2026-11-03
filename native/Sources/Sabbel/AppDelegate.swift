@@ -14,7 +14,9 @@ import SabbelSystem
 /// 5. in parallel, the model load;
 /// 6. the update check, when due.
 @MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
-    private let log = RuntimeLog()
+    /// Opened only once the instance lock is held: a refused second launch must
+    /// never touch the running instance's log (R23).
+    private var log: RuntimeLog!
     private let instanceLock = SingleInstanceLock()
     private let recognizer = RecognizerSlot()
     private var coordinator: TakeCoordinator?
@@ -30,13 +32,13 @@ import SabbelSystem
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let log = self.log
-        let info: @Sendable (String) -> Void = { log.info($0) }
-
         guard instanceLock.acquire() else {
-            info("Sabbel is already running. Exiting.")
+            FileHandle.standardError.write(Data("Sabbel is already running. Exiting.\n".utf8))
             exit(0)
         }
+        let log = RuntimeLog()
+        self.log = log
+        let info: @Sendable (String) -> Void = { log.info($0) }
         let version = Self.version
         info("Sabbel starting (v\(version), \(EngineInfo.description))")
 
@@ -72,7 +74,7 @@ import SabbelSystem
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        log.info("Sabbel shutting down")
+        log?.info("Sabbel shutting down")
         tap?.stop()
         instanceLock.release()
     }
@@ -113,7 +115,7 @@ import SabbelSystem
     }
 
     private func startHotkey(_ spec: HotkeySpec) -> Bool {
-        let log = self.log
+        let log: RuntimeLog = self.log
         let tap = HotkeyTap(spec: spec, log: { log.info($0) }) { [weak self] input, time in
             // Main queue, not a Task: keys must reach the state machine in the order they happened.
             DispatchQueue.main.async {
@@ -133,7 +135,7 @@ import SabbelSystem
 
     private func loadModel() {
         let slot = recognizer
-        let log = self.log
+        let log: RuntimeLog = self.log
         let started = Date()
         log.info("Loading model: \(EngineInfo.description)")
         // The delegate lives as long as the app, so the task holds it strongly.

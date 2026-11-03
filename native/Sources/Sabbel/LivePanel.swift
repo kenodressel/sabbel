@@ -59,9 +59,7 @@ struct LiveTextView: View {
         panel.title = "Sabbel — Live Text"
         panel.hidesOnDeactivate = false
         panel.becomesKeyOnlyIfNeeded = true
-        // Stays above the app being dictated into, on every Space.
-        panel.isFloatingPanel = true
-        panel.level = .floating
+        // A normal window (R24), available on every Space.
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isReleasedWhenClosed = false
         panel.contentView = NSHostingView(rootView: LiveTextView(model: model))
