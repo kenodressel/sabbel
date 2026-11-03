@@ -654,7 +654,7 @@ The app's behaviour lives here, as a port of `SabbelApp`, testable with fakes.
   - check for updates when due (`UpdateThrottle`), with a 5 s timeout and silent failure.
 
 - [ ] **Step 1: Build.** Run `make native-build`. Expected: `Build complete!`.
-- [ ] **Step 2: Run the unbundled binary.** Run `native/.build/release/Sabbel` from a terminal that has Accessibility permission, check the log and quit. Expected in `/tmp/sabbel-runtime.log`: settings lines, "Permissions ready", model progress, and "Ready".
+- [ ] **Step 2: Run the unbundled binary.** Run `native/.build/release/Sabbel` from a terminal that has Accessibility permission, check the log and quit. Expected in `/tmp/sabbel-runtime.log`: settings lines, "Permissions ready", model progress, and "Ready". Note the idle memory once it is ready: `ps -o rss= -p $(pgrep -x Sabbel)`. Goal 5 needs it well under today's ~3 GB; record it for the PR.
 - [ ] **Step 3: Commit.** `feat(native): menu bar app, live panel, system adapters`
 - [ ] **Step 4: Manual smoke test by Keno,** after Task 12 has made it installable. Dictate:
   - a short take and a 2-minute take;
