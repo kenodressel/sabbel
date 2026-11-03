@@ -76,7 +76,7 @@ public struct Glossary: Sendable, Equatable {
             }
             for alias in aliases {
                 let words = alias.split(whereSeparator: \.isWhitespace)
-                    .map { Array($0).map { Character(String($0).lowercased()) } }
+                    .map { Array($0).map(fold) }
                 if words.isEmpty {
                     warnings.append("Glossary line \(lineNumber): empty alias, skipped")
                     continue
