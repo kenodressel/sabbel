@@ -45,3 +45,13 @@ jobs:
         # (v0.4.x transcribed nothing) and the buffer cache that grew ~0.5 GB
         # per dictation (v0.5.0) both shipped past it.
         run: .venv/bin/python -m pytest -m model -v
+
+  native:
+    runs-on: macos-15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Run native tests
+        run: make native-test

@@ -1,0 +1,1 @@
+print("usage: sabbel-eval")

@@ -1,3 +1,8 @@
+# Swift needs Xcode's toolchain: the Command Line Tools lack Testing/XCTest.
+DEVELOPER_DIR ?= /Applications/Xcode.app/Contents/Developer
+export DEVELOPER_DIR
+SWIFT = swift
+
 PLIST_NAME = com.sabbel.agent
 PLIST_DIR = $(HOME)/Library/LaunchAgents
 PLIST_PATH = $(PLIST_DIR)/$(PLIST_NAME).plist
@@ -10,7 +15,7 @@ LAUNCH_SERVICE = $(LAUNCH_DOMAIN)/$(PLIST_NAME)
 # it installed into .venv; a bundle is only standalone when built from one.
 BUILD_PYTHON ?= uv run --extra build python
 
-.PHONY: run test test-model build-app install-app reinstall-app ensure-app-installed autostart autostart-remove stop restart status download-model clean help
+.PHONY: run test test-model build-app install-app reinstall-app ensure-app-installed autostart autostart-remove stop restart status download-model clean native-build native-test help
 
 run: ## Start Sabbel (foreground)
 	uv run sabbel
@@ -151,6 +156,12 @@ download-model: ## Pre-download Parakeet model (~2.3GB)
 clean: ## Remove all build artifacts (forces full rebuild)
 	@rm -rf build dist
 	@echo "✓ Build cache cleared."
+
+native-build: ## Build the native Swift package (release)
+	$(SWIFT) build --package-path native -c release
+
+native-test: ## Run the native Swift tests
+	$(SWIFT) test --package-path native
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
