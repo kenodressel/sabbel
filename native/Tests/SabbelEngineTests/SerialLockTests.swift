@@ -21,11 +21,14 @@ private actor Probe {
 private struct Boom: Error {}
 
 @Suite struct SerialLockTests {
-    /// Waits (bounded) until `count` callers are queued behind the holder.
+    /// Waits (bounded by time, not by a yield count, so a loaded test run does
+    /// not trip it) until `count` callers are queued behind the holder.
     private func waitForWaiters(_ lock: AsyncSerialLock, _ count: Int) async {
-        for _ in 0..<10_000 {
+        let clock = ContinuousClock()
+        let deadline = clock.now + .seconds(5)
+        while clock.now < deadline {
             if await lock.waiterCount >= count { return }
-            await Task.yield()
+            try? await Task.sleep(for: .milliseconds(1))
         }
         Issue.record("lock never had \(count) waiters")
     }
@@ -34,12 +37,19 @@ private struct Boom: Error {}
         let lock = AsyncSerialLock()
         let probe = Probe()
         let (started, startedSink) = AsyncStream.makeStream(of: Void.self)
+        let (gate, gateSink) = AsyncStream.makeStream(of: Void.self)
 
         @Sendable func slow(_ id: Int) async throws -> Int {
             await probe.enter()
-            if id == 1 { startedSink.yield() }
-            // Long enough for the other callers to pile up while it is suspended.
-            try await Task.sleep(for: .milliseconds(40))
+            if id == 1 {
+                startedSink.yield()
+                // Held until the other callers have piled up behind it. A fixed
+                // sleep here let a loaded run release before the third caller queued.
+                for await _ in gate { break }
+            } else {
+                // Suspended while holding, so a lock that let callers overlap would show it.
+                try await Task.sleep(for: .milliseconds(5))
+            }
             await probe.leave(id)
             return id
         }
@@ -51,6 +61,7 @@ private struct Boom: Error {}
         await waitForWaiters(lock, 1)
         let third = Task { try await lock.run { try await slow(3) } }
         await waitForWaiters(lock, 2)
+        gateSink.yield()
 
         let results = try await [first.value, second.value, third.value]
         #expect(results == [1, 2, 3])
