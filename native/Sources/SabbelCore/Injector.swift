@@ -29,10 +29,13 @@ public enum InjectOutcome: String, Sendable {
 public struct FocusTarget: Equatable, Sendable {
     public let pid: Int32
     public let name: String?
+    /// The app's bundle identifier, for per-app text rules.
+    public let bundleID: String?
 
-    public init(pid: Int32, name: String?) {
+    public init(pid: Int32, name: String?, bundleID: String? = nil) {
         self.pid = pid
         self.name = name
+        self.bundleID = bundleID
     }
 }
 

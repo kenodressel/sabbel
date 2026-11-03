@@ -41,6 +41,13 @@ private func load(toml: String? = nil, prefs: String? = nil) -> (SabbelSettings,
         #expect(log.isEmpty)
     }
 
+    @Test func textSwitchesDefaultOnAndCanBeTurnedOff() {
+        #expect(SabbelSettings().tidyText && SabbelSettings().appRules)
+        let (s, log) = load(toml: "[text]\ntidy = false\napp_rules = false")
+        #expect(!s.tidyText && !s.appRules)
+        #expect(log.isEmpty)
+    }
+
     @Test func minDurationAtTheFloorIsAccepted() {
         let (s, log) = load(toml: "[audio]\nmin_duration_seconds = 0.3")
         #expect(s.minDuration == 0.3)
@@ -58,6 +65,8 @@ private func load(toml: String? = nil, prefs: String? = nil) -> (SabbelSettings,
         ("[history]\nmax_bytes = -1", "max_bytes"),
         ("[history]\nmax_bytes = 1.5", "max_bytes"),
         ("[history]\nenabled = \"yes\"", "enabled"),
+        ("[text]\ntidy = 1", "tidy"),
+        ("[text]\napp_rules = \"no\"", "app_rules"),
     ])
     func invalidValueFallsBackAndKeepsOthers(toml: String, key: String) {
         let extra = key == "hotkey" ? "" : "[general]\nhotkey = \"f5\"\n"

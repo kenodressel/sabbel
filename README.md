@@ -130,13 +130,35 @@ min_duration_seconds = 0.5
 enabled = false        # Seed value. The menu toggle is the primary control
                        # and overrides this once flipped.
 max_bytes = 1000000    # Rotate log to .1 once it grows beyond this.
+
+[text]
+tidy = true            # Remove fillers ("ähm", "uh") and accidental repeats.
+app_rules = true       # Per-app formatting, e.g. no trailing period in Slack.
 ```
+
+`app_rules` drops the final full stop in chat, terminal and IDE apps (Slack, Discord, Teams, WhatsApp, Telegram, Signal, Messages; Terminal, iTerm, Ghostty, Warp, kitty, Alacritty, WezTerm; VS Code, Cursor, Zed, JetBrains, Xcode, Windsurf). Question marks, exclamation marks, ellipses and abbreviations ("z. B.", "usw.") keep theirs; other apps are untouched.
+
+`tidy` removes spoken fillers (äh, ähm, öh, hm, mhm, uh, uhm, erm, …) and
+accidental repeats of two to four words ("at the at the" becomes "at the").
+"um" goes only when it is set off on both sides ("Um, I think", "so, um, yes"),
+since it is also a German word ("um 5 Uhr", "es geht um, äh, …"). A single doubled word is always kept.
 
 Nothing in this file can stop Sabbel from starting. A value Sabbel cannot use
 is ignored in favour of its default — a malformed file falls back entirely —
 and the reason is written to `/tmp/sabbel-runtime.log`. Entries from older
 versions (`[model] repo`, `[injection]`, `[general] language`) are ignored the
 same way; you can delete them.
+
+**Glossary:** the recognizer sometimes misspells English tech terms inside German speech ("Kuber Netties", "Git Hub"). Sabbel menu → **Edit Glossary…** opens `~/.config/sabbel/glossary.txt` (created with a commented template) so you can fix them with replacement rules. Edits apply on the next take, no restart.
+
+```
+# Comments and blank lines are ignored.
+Kubernetes                  # a term alone fixes its casing
+GitHub: Git Hub, git hab    # term: aliases, each alias becomes the term
+das DAM: das Damm           # an alias may carry context words
+```
+
+Matching ignores case, keeps umlauts significant and only hits whole words ("Hub" inside "Hubert" stays); the longest alias wins. A bad line is skipped and logged with its line number. `sabbel-eval --glossary FILE` applies the same file to every hypothesis.
 
 **Toggle from the menu bar:** open the Sabbel menu → **History → Save history**. The checkmark persists across restarts (stored in `~/.config/sabbel/preferences.json`), so you don't need to edit TOML. Use **History → Open log** and **History → Clear log** to view or wipe it.
 
