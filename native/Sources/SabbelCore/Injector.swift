@@ -124,14 +124,27 @@ public struct Injector: Sendable {
     let postPasteDelay: TimeInterval
     let modifierTimeout: TimeInterval
     let verifyTimeout: TimeInterval
+    let log: (@Sendable (String) -> Void)?
 
+    /// - Parameter log: receives the same INFO-level decisions `injector.py` logs
+    ///   (focus changed, secure field, non-text role, modifier timeout, paste not
+    ///   observed, clipboard changed during the paste). Nil drops them.
     public init(env: any PasteEnvironment, prePasteDelay: TimeInterval = 0.05, postPasteDelay: TimeInterval = 0.15,
-                modifierTimeout: TimeInterval = 2.0, verifyTimeout: TimeInterval = 1.0) {
+                modifierTimeout: TimeInterval = 2.0, verifyTimeout: TimeInterval = 1.0,
+                log: (@Sendable (String) -> Void)? = nil) {
         self.env = env
         self.prePasteDelay = prePasteDelay
         self.postPasteDelay = postPasteDelay
         self.modifierTimeout = modifierTimeout
         self.verifyTimeout = verifyTimeout
+        self.log = log
+    }
+
+    private func info(_ message: String) { log?(message) }
+
+    private static func describe(_ target: FocusTarget?) -> String {
+        guard let target else { return "nil" }
+        return target.name ?? "pid \(target.pid)"
     }
 
     // MARK: main entry point
@@ -147,17 +160,22 @@ public struct Injector: Sendable {
     /// switch apps. Either mismatch leaves the text in the clipboard, unpasted.
     public func inject(_ text: String, target: FocusTarget?) -> InjectOutcome {
         if !focusTargetIsActive(target) {
-            // Focus changed since recording started — leave the text in the clipboard.
+            info("Focus changed since recording started (expected \(Self.describe(target))) — leaving text in clipboard")
             _ = env.writeTransient(text)
             return .focusChanged
         }
 
         let focused = env.focusedElement()
         if Self.isSecure(focused) {
+            info("Focused element is a secure text field — refusing to paste")
             return .refusedSecure
         }
 
         let pasteLikely = Self.canAcceptPaste(focused)
+        if !pasteLikely {
+            // canAcceptPaste only says no for a known non-text role.
+            info("Paste detection: non-text role \(focused?.role ?? "nil") — text left in clipboard")
+        }
 
         // Don't let a still-held Option turn our Cmd+V into Cmd+Opt+V.
         waitForModifiersReleased(timeout: modifierTimeout)
@@ -174,6 +192,7 @@ public struct Injector: Sendable {
         // frontmost may land nowhere or somewhere the user isn't looking. The
         // transcript stays in the clipboard (no restore) so it can be pasted by hand.
         if !focusTargetIsActive(target) {
+            info("Focus lost right before Cmd+V (expected \(Self.describe(target))) — leaving text in clipboard")
             return .focusChanged
         }
 
@@ -191,9 +210,16 @@ public struct Injector: Sendable {
             env.sleep(postPasteDelay)
         } else {
             let deadline = env.now() + verifyTimeout
+            var observed = false
             while env.now() < deadline {
-                if pasteObserved(before: valueBefore, expected: text) { break }
+                if pasteObserved(before: valueBefore, expected: text) {
+                    observed = true
+                    break
+                }
                 env.sleep(Self.verifyPoll)
+            }
+            if !observed {
+                info("Paste not observed within \(String(format: "%.1f", verifyTimeout))s — restoring anyway")
             }
             // Not observing the paste is not evidence that it failed — plenty of
             // apps simply never report it. Waiting out the timeout already gave the
@@ -205,6 +231,7 @@ public struct Injector: Sendable {
         // copied something, or another app wrote to it.)
         if env.clipboardChangeCount() != ourChangeCount {
             if env.clipboardString() != text {
+                info("Clipboard changed during paste — skipping restore")
                 return .pasted
             }
         }
@@ -280,6 +307,7 @@ public struct Injector: Sendable {
             if !env.modifiersHeld() { return true }
             env.sleep(poll)
         }
+        info("Modifiers still held after \(String(format: "%.1f", timeout))s — pasting anyway")
         return false
     }
 

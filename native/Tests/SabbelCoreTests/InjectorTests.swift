@@ -435,6 +435,88 @@ import Testing
         #expect(!Injector(env: env).pasteObserved(before: "vorher", expected: "hallo"))
     }
 
+    // MARK: logging, as injector.py does at INFO
+
+    final class LogSink: @unchecked Sendable {
+        private let lock = NSLock()
+        private var _lines: [String] = []
+        var lines: [String] { lock.withLock { _lines } }
+        var sink: @Sendable (String) -> Void { { line in self.lock.withLock { self._lines.append(line) } } }
+    }
+
+    @Test func focusChangeLogsTheTargetName() {
+        let env = notesEnv()
+        env.frontmostPIDAnswer = { _, _ in 99 }
+        let logs = LogSink()
+
+        _ = Injector(env: env, log: logs.sink).inject("hallo", target: Self.notes)
+
+        #expect(logs.lines.count == 1)
+        #expect(logs.lines.first?.contains("Focus changed since recording started") == true)
+        #expect(logs.lines.first?.contains("Notes") == true)
+    }
+
+    @Test func focusLostBeforeCommandVLogsTheTargetName() {
+        let env = notesEnv()
+        env.frontmostPIDAnswer = { n, _ in n == 0 ? 42 : 99 }
+        let logs = LogSink()
+
+        _ = Injector(env: env, log: logs.sink).inject("hallo", target: Self.notes)
+
+        #expect(logs.lines.count == 1)
+        #expect(logs.lines.first?.contains("right before Cmd+V") == true)
+        #expect(logs.lines.first?.contains("Notes") == true)
+    }
+
+    @Test func secureRefusalLogs() {
+        let env = notesEnv()
+        env.focusedElementAnswer = { _, _ in
+            FocusedElement(role: "AXTextField", subrole: "AXSecureTextField", hasSelectedTextRange: true,
+                           valueSettable: true, selectedTextSettable: true)
+        }
+        let logs = LogSink()
+
+        _ = Injector(env: env, log: logs.sink).inject("hunter2", target: Self.notes)
+
+        #expect(logs.lines == ["Focused element is a secure text field — refusing to paste"])
+    }
+
+    @Test func otherDecisionsLog() {
+        let logs = LogSink()
+
+        let image = notesEnv()
+        image.focusedElementAnswer = { _, _ in
+            FocusedElement(role: "AXImage", subrole: nil, hasSelectedTextRange: false,
+                           valueSettable: false, selectedTextSettable: false)
+        }
+        image.modifiersHeldAnswer = { _, _ in true }
+        image.focusedValueAnswer = { _, _ in "lesbar" }
+        _ = Injector(env: image, log: logs.sink).inject("hallo", target: Self.notes)
+
+        let copied = notesEnv()
+        copied.onCall = { call, env in
+            if case .postCommandV = call { env.userCopies("something else") }
+        }
+        _ = Injector(env: copied, log: logs.sink).inject("hallo", target: Self.notes)
+
+        #expect(logs.lines == [
+            "Paste detection: non-text role AXImage — text left in clipboard",
+            "Modifiers still held after 2.0s — pasting anyway",
+            "Paste not observed within 1.0s — restoring anyway",
+            "Clipboard changed during paste — skipping restore",
+        ])
+    }
+
+    @Test func happyPathLogsNothing() {
+        let env = notesEnv()
+        env.focusedValueAnswer = { n, _ in n == 0 ? "" : "hallo" }
+        let logs = LogSink()
+
+        _ = Injector(env: env, log: logs.sink).inject("hallo", target: Self.notes)
+
+        #expect(logs.lines.isEmpty)
+    }
+
     @Test func normalizeForMatch() {
         #expect(Injector.normalizeForMatch("Hallo\u{0}Welt\n x") == "Hallo Welt x")
         #expect(Injector.normalizeForMatch("  a\t\tb\r\nc  ") == "a b c")
