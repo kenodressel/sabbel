@@ -39,12 +39,13 @@ sed "s|__BUNDLE_VERSION__|$BUNDLE_VERSION|g; s|__SABBEL_VERSION__|$VERSION|g" \
   "$ROOT/native/Resources/Info.plist" > "$APP/Contents/Info.plist"
 plutil -lint "$APP/Contents/Info.plist" >/dev/null
 
-# SwiftPM resource bundles: Bundle.module looks in Bundle.main.resourceURL.
-for b in "$BIN_DIR"/*.bundle; do
-  [ -e "$b" ] || continue
-  cp -R "$b" "$APP/Contents/Resources/"
-  echo "bundled resource bundle $(basename "$b")"
-done
+# SwiftPM resource bundles are deliberately NOT shipped. The generated
+# Bundle.module accessor of an executable looks next to the .app (its
+# bundleURL) and in the build directory, never in Contents/Resources, so a copy
+# there would never be found; and the only bundle the build makes,
+# FluidAudio_LuxTtsG2pResources, belongs to FluidAudio's text-to-speech code,
+# which the ASR path never touches. A bundle that only works because the build
+# directory still exists on this Mac would pass here and break for users.
 
 # Dynamic frameworks (e.g. from binary targets): found through @rpath.
 shopt -s nullglob
