@@ -213,17 +213,21 @@ keyUsage = critical, digitalSignature
 extendedKeyUsage = critical, codeSigning
 basicConstraints = critical, CA:false
 CNF
-openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+/usr/bin/openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
   -config /tmp/sabbel-cert.cnf -keyout sabbel-release.key -out sabbel-release.crt
 
-# 2. Bundle it as a .p12 (macOS's security tool needs the legacy algorithms).
-P12_PASSWORD="$(openssl rand -base64 24)"
-openssl pkcs12 -export -legacy -inkey sabbel-release.key -in sabbel-release.crt \
+# 2. Bundle it as a .p12. Use macOS's own /usr/bin/openssl (LibreSSL) throughout:
+#    it writes a format `security import` reads; Homebrew OpenSSL 3 needs -legacy for that.
+P12_PASSWORD="$(/usr/bin/openssl rand -base64 24)"
+/usr/bin/openssl pkcs12 -export -inkey sabbel-release.key -in sabbel-release.crt \
   -name "Sabbel Release" -out sabbel-release.p12 -passout "pass:$P12_PASSWORD"
 
-# 3. Import it locally so `make build-app` finds it, and trust it for code signing.
+# 3. Import it locally so `make build-app` finds it, and trust it for code signing
+#    (without the trust step a self-signed certificate is not a valid identity).
 security import sabbel-release.p12 -k ~/Library/Keychains/login.keychain-db \
   -P "$P12_PASSWORD" -T /usr/bin/codesign
+security add-trusted-cert -r trustRoot -p codeSign \
+  -k ~/Library/Keychains/login.keychain-db sabbel-release.crt
 security find-identity -v -p codesigning   # must list "Sabbel Release"
 
 # 4. Store the two secrets for the Release workflow.

@@ -16,11 +16,15 @@ if [ "$VERSION" = "dev" ]; then BUNDLE_VERSION="0.0.0"; else BUNDLE_VERSION="${V
 
 IDENTITY="${SABBEL_SIGN_IDENTITY:-}"
 if [ -z "$IDENTITY" ]; then
-  if security find-identity -v -p codesigning 2>/dev/null | grep -q '"Sabbel Release"'; then
+  # Without -v, an untrusted self-signed identity is listed too (marked
+  # CSSMERR_TP_NOT_TRUSTED). codesign can still use it, so that is not a reason to go ad hoc.
+  if security find-identity -p codesigning 2>/dev/null | grep -q '"Sabbel Release"'; then
     IDENTITY="Sabbel Release"
+    security find-identity -v -p codesigning 2>/dev/null | grep -q '"Sabbel Release"' \
+      || echo "warning: \"Sabbel Release\" is not trusted for code signing (see README: Signing releases)" >&2
   else
     IDENTITY="-"
-    echo "warning: signing ad hoc; Accessibility/Microphone grants will not survive a rebuild" >&2
+    echo "warning: no \"Sabbel Release\" identity in the keychain, signing AD HOC; Accessibility/Microphone grants will not survive a rebuild (see README: Signing releases)" >&2
   fi
 fi
 

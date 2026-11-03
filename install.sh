@@ -192,8 +192,9 @@ printf "\n"
 if [ "${IS_UPDATE}" = true ]; then
   success "Sabbel has been updated and launched."
   printf "\n"
-  printf "  Your Accessibility and Microphone permissions carry over, because\n"
-  printf "  releases are signed with the same certificate.\n"
+  printf "  If macOS asks for Accessibility and Microphone permissions again, that\n"
+  printf "  is because the app's signature changed (expected once, when updating\n"
+  printf "  from a 0.5.x build). Later updates keep your permissions.\n"
 else
   success "Sabbel has been installed to ${BOLD}${DEST}${RESET} and launched."
   printf "\n"

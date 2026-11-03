@@ -46,6 +46,8 @@ jobs:
             || { echo "✗ SABBEL_SIGN_P12 / SABBEL_SIGN_P12_PASSWORD secrets are not set"; exit 1; }
           KEYCHAIN="$RUNNER_TEMP/sabbel-signing.keychain-db"
           KEYCHAIN_PASSWORD="$(uuidgen)"
+          # Recorded first so the always-run cleanup deletes it even if a later command fails.
+          echo "SABBEL_SIGN_KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
           echo "$SABBEL_SIGN_P12" | base64 --decode > "$RUNNER_TEMP/sabbel-sign.p12"
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
           security set-keychain-settings -lut 3600 "$KEYCHAIN"
@@ -57,7 +59,6 @@ jobs:
             -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
           # Put the temporary keychain first in the search list (keep the others).
           security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
-          echo "SABBEL_SIGN_KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
           echo "SABBEL_SIGN_IDENTITY=Sabbel Release" >> "$GITHUB_ENV"
 
       - name: Build Sabbel.app
