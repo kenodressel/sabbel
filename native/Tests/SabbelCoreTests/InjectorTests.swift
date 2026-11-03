@@ -27,6 +27,52 @@ import Testing
 
     private func isRestore(_ c: FakePasteEnvironment.Call) -> Bool { c == .restoreClipboard }
 
+    // MARK: Sabbel itself frontmost
+
+    static let ownPID: Int32 = 4_242
+
+    /// The take had no target (it started in Sabbel's own panel) and Sabbel is
+    /// still frontmost at paste time, e.g. the user clicked one of its
+    /// notification banners. A Cmd+V there lands nowhere, so the text stays on
+    /// the clipboard for a manual paste.
+    @Test func sabbelFrontmostAtPasteLeavesTextInClipboard() {
+        let env = FakePasteEnvironment()
+        env.frontmostPIDAnswer = { _, _ in Self.ownPID }
+        env.focusedElementAnswer = { _, _ in Self.textField }
+
+        let result = Injector(env: env, ownPID: Self.ownPID).inject("hallo", target: nil)
+
+        #expect(result == .leftInClipboard)
+        #expect(!env.postedCommandV)
+        #expect(!env.didCall(isRestore))
+        #expect(env.currentString == "hallo")
+    }
+
+    /// Sabbel comes to the front during the modifier wait: the late check catches it.
+    @Test func sabbelFrontmostRightBeforeCommandVLeavesTextInClipboard() {
+        let env = FakePasteEnvironment()
+        env.frontmostPIDAnswer = { _, t in t < 0.3 ? 42 : Self.ownPID }
+        env.focusedElementAnswer = { _, _ in Self.textField }
+        env.modifiersHeldAnswer = { _, t in t < 0.3 }
+
+        let result = Injector(env: env, ownPID: Self.ownPID).inject("hallo", target: nil)
+
+        #expect(result == .leftInClipboard)
+        #expect(!env.postedCommandV)
+        #expect(!env.didCall(isRestore))
+        #expect(env.currentString == "hallo")
+    }
+
+    /// Without an own pid (the default) nothing changes: the paste stays optimistic.
+    @Test func noOwnPidKeepsTheOptimisticPaste() {
+        let env = FakePasteEnvironment()
+        env.frontmostPIDAnswer = { _, _ in Self.ownPID }
+        env.focusedElementAnswer = { _, _ in Self.textField }
+
+        #expect(Injector(env: env).inject("hallo", target: nil) == .pasted)
+        #expect(env.postedCommandV)
+    }
+
     // MARK: focus target
 
     @Test func focusTargetActiveWhenPidMatches() {

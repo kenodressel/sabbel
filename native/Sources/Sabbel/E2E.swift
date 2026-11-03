@@ -141,7 +141,7 @@ import SabbelSystem
         let slot = recognizer
         let coordinator = TakeCoordinator(
             settings: settings, paths: paths, audio: audio, focus: SystemFocusProbe(),
-            injector: Injector(env: paste, log: tee),
+            injector: Injector(env: paste, ownPID: getpid(), log: tee),
             makeTranscriber: { StreamingTranscriber(recognizer: slot) }, ui: ui, log: tee)
         menuBar.coordinator = coordinator
         ui.coordinator = coordinator

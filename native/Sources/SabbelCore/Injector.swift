@@ -125,14 +125,20 @@ public struct Injector: Sendable {
     let modifierTimeout: TimeInterval
     let verifyTimeout: TimeInterval
     let log: (@Sendable (String) -> Void)?
+    /// Sabbel's own pid. Sabbel is never a paste destination.
+    let ownPID: Int32?
 
+    /// - Parameter ownPID: Sabbel's own pid; when Sabbel is frontmost at paste
+    ///   time the text is left in the clipboard instead of pasted into nothing.
+    ///   Nil disables the check.
     /// - Parameter log: receives the same INFO-level decisions `injector.py` logs
     ///   (focus changed, secure field, non-text role, modifier timeout, paste not
     ///   observed, clipboard changed during the paste). Nil drops them.
     public init(env: any PasteEnvironment, prePasteDelay: TimeInterval = 0.05, postPasteDelay: TimeInterval = 0.15,
                 modifierTimeout: TimeInterval = 2.0, verifyTimeout: TimeInterval = 1.0,
-                log: (@Sendable (String) -> Void)? = nil) {
+                ownPID: Int32? = nil, log: (@Sendable (String) -> Void)? = nil) {
         self.env = env
+        self.ownPID = ownPID
         self.prePasteDelay = prePasteDelay
         self.postPasteDelay = postPasteDelay
         self.modifierTimeout = modifierTimeout
@@ -164,6 +170,11 @@ public struct Injector: Sendable {
             _ = env.writeTransient(text)
             return .focusChanged
         }
+        if sabbelIsFrontmost() {
+            info("Sabbel itself is frontmost — leaving text in clipboard")
+            _ = env.writeTransient(text)
+            return .leftInClipboard
+        }
 
         let focused = env.focusedElement()
         if Self.isSecure(focused) {
@@ -194,6 +205,10 @@ public struct Injector: Sendable {
         if !focusTargetIsActive(target) {
             info("Focus lost right before Cmd+V (expected \(Self.describe(target))) — leaving text in clipboard")
             return .focusChanged
+        }
+        if sabbelIsFrontmost() {
+            info("Sabbel itself is frontmost right before Cmd+V — leaving text in clipboard")
+            return .leftInClipboard
         }
 
         // The pid check can't see a focus move *within* the target app (Tab into a
@@ -257,6 +272,14 @@ public struct Injector: Sendable {
     }
 
     // MARK: focus tracking
+
+    /// True if Sabbel's own app is frontmost. A take with no target (it started
+    /// in Sabbel's panel) would otherwise paste optimistically into Sabbel, where
+    /// Cmd+V lands nowhere and the restored clipboard loses the dictation.
+    func sabbelIsFrontmost() -> Bool {
+        guard let ownPID else { return false }
+        return env.frontmostPID() == ownPID
+    }
 
     /// True if `target` is still frontmost.
     ///

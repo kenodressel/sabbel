@@ -170,7 +170,8 @@ public final class TakeCoordinator {
         var target = focused.target
         if target?.pid == focus.ownPID {
             // Sabbel's own window (the live panel) is never the destination. With
-            // no target the injector judges whatever field is frontmost at paste time.
+            // no target the injector judges whatever field is frontmost at paste
+            // time, and leaves the text in the clipboard if that is Sabbel again.
             target = nil
         }
 

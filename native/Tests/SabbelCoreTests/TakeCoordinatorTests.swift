@@ -35,7 +35,7 @@ final class Harness {
         self.recognizers = queue
         coordinator = TakeCoordinator(
             settings: settings, paths: paths, audio: audio, focus: focus,
-            injector: Injector(env: env),
+            injector: Injector(env: env, ownPID: focus.ownPID),
             makeTranscriber: { StreamingTranscriber(recognizer: queue.take()) },
             ui: ui, errorClearDelay: .milliseconds(30))
         coordinator.modelState = modelState
@@ -339,6 +339,20 @@ final class Harness {
         h.take()
         await h.coordinator.waitUntilIdle()
         #expect(h.commandVTargets == [nil])
+    }
+
+    /// Sabbel is still frontmost when the take pastes (a click on its notification
+    /// banner): the text stays on the clipboard, with a notice, and is saved.
+    @Test func sabbelFrontmostAtPasteLeavesTextInClipboard() async {
+        let h = Harness(settings: Self.historyOn(),
+                        focus: FakeFocusProbe([(FocusTarget(pid: 4_242, name: "Sabbel"), false)], ownPID: 4_242))
+        h.env.frontmostPIDAnswer = { _, _ in 4_242 }
+        h.take()
+        await h.coordinator.waitUntilIdle()
+        #expect(h.commandVTargets.isEmpty)
+        #expect(h.env.currentString == "hello")
+        #expect(h.ui.notices == [.textCopiedNoField])
+        #expect(h.history?.contains("hello") == true)
     }
 
     @Test func injectGetsTheTakesTarget() async {
