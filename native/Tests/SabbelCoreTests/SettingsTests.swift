@@ -41,11 +41,20 @@ private func load(toml: String? = nil, prefs: String? = nil) -> (SabbelSettings,
         #expect(log.isEmpty)
     }
 
+    @Test func minDurationAtTheFloorIsAccepted() {
+        let (s, log) = load(toml: "[audio]\nmin_duration_seconds = 0.3")
+        #expect(s.minDuration == 0.3)
+        #expect(log.isEmpty)
+    }
+
     @Test(arguments: [
         ("[general]\nhotkey = \"bogus\"", "hotkey"),
         ("[audio]\nmin_duration_seconds = 0", "min_duration_seconds"),
         ("[audio]\nmin_duration_seconds = true", "min_duration_seconds"),
         ("[audio]\nmin_duration_seconds = nan", "min_duration_seconds"),
+        // FluidAudio rejects audio shorter than 0.3 s, so a shorter minimum would let such takes through.
+        ("[audio]\nmin_duration_seconds = 0.2", "min_duration_seconds"),
+        ("[audio]\nmin_duration_seconds = 0.29", "min_duration_seconds"),
         ("[history]\nmax_bytes = -1", "max_bytes"),
         ("[history]\nmax_bytes = 1.5", "max_bytes"),
         ("[history]\nenabled = \"yes\"", "enabled"),

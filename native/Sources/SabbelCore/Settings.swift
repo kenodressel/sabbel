@@ -37,6 +37,9 @@ public struct SabbelSettings: Equatable, Sendable {
     public var hotkey: HotkeySpec = .default
     public var hotkeyName: String = "alt_r"
     public var minDuration: TimeInterval = 0.5
+    /// FluidAudio refuses audio shorter than this, so a smaller minimum would
+    /// only turn "Too short" into a recognition error.
+    public static let minDurationFloor: TimeInterval = 0.3
     public var historyEnabled = false
     public var historyMaxBytes = 1_000_000
     public var audioDevice: String? = nil
@@ -94,9 +97,9 @@ public struct SabbelSettings: Equatable, Sendable {
         }
         if let raw = doc["audio"]?["min_duration_seconds"] {
             switch raw {
-            case .integer(let i) where i > 0: minDuration = Double(i)
-            case .float(let d) where d.isFinite && d > 0: minDuration = d
-            default: reject("audio", "min_duration_seconds", raw, "expected a finite number > 0", minDuration)
+            case .integer(let i) where Double(i) >= Self.minDurationFloor: minDuration = Double(i)
+            case .float(let d) where d.isFinite && d >= Self.minDurationFloor: minDuration = d
+            default: reject("audio", "min_duration_seconds", raw, "expected a finite number >= \(Self.minDurationFloor)", minDuration)
             }
         }
         if let raw = doc["history"]?["enabled"] {
