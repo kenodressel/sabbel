@@ -68,3 +68,9 @@ jobs:
       - name: Run native model tests
         run: make native-test-model
         timeout-minutes: 20
+
+      - name: Build and verify the app bundle
+        # Ad hoc signed; proves the bundle assembles and verifies on every PR.
+        run: |
+          make build-app
+          codesign --verify --deep --strict dist/Sabbel.app
