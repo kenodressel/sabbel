@@ -23,9 +23,9 @@ import SabbelCore
             #expect(board.writeObjects([item]))
             let snap = env.captureClipboard()
             #expect(snap.items.count == 1)
-            #expect(snap.items[0][NSPasteboard.PasteboardType.string.rawValue] == str)
-            #expect(snap.items[0][NSPasteboard.PasteboardType.rtf.rawValue] == rtf)
-            #expect(snap.items[0][custom.rawValue] == cus)
+            #expect(snap.items[0].data(for: NSPasteboard.PasteboardType.string.rawValue) == str)
+            #expect(snap.items[0].data(for: NSPasteboard.PasteboardType.rtf.rawValue) == rtf)
+            #expect(snap.items[0].data(for: custom.rawValue) == cus)
         }
     }
 
@@ -51,6 +51,28 @@ import SabbelCore
             let again = env.captureClipboard()
             #expect(again.items == snap.items)
             #expect(again.items.count == 2)
+        }
+    }
+
+    /// An item's types are in fidelity order, richest first, and apps paste the
+    /// first type they understand. A restore that shuffles them can turn a rich
+    /// paste into plain text.
+    @Test func restorePreservesTypeOrder() {
+        withBoard { board, env in
+            let item = NSPasteboardItem()
+            let types: [NSPasteboard.PasteboardType] = [
+                custom, .rtf, .html, .string, .tiff, .png, NSPasteboard.PasteboardType("com.sabbel.test.other"),
+            ]
+            for (i, type) in types.enumerated() { item.setData(Data([UInt8(i)]), forType: type) }
+            board.clearContents()
+            board.writeObjects([item])
+            // Whatever order the pasteboard settled on (it adds a UTF-16 flavour of
+            // the string and moves it), a capture and restore must keep it.
+            let before = board.pasteboardItems?.first?.types ?? []
+            #expect(before.count >= types.count)
+
+            env.restoreClipboard(env.captureClipboard())
+            #expect(board.pasteboardItems?.first?.types == before)
         }
     }
 

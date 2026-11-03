@@ -59,15 +59,36 @@ public struct FocusedElement: Equatable, Sendable {
     }
 }
 
+/// One type of a pasteboard item with its data.
+public struct PasteboardFlavor: Equatable, Sendable {
+    public var type: String
+    public var data: Data
+
+    public init(_ type: String, _ data: Data) {
+        self.type = type
+        self.data = data
+    }
+}
+
+public extension Array where Element == PasteboardFlavor {
+    /// The data of the first flavour of `type`.
+    func data(for type: String) -> Data? { first { $0.type == type }?.data }
+}
+
 /// Every item and every type on the pasteboard.
 ///
 /// Saving only the string flavour (the old behaviour) destroys images, rich text
 /// and file references: whatever the user had copied comes back as plain text,
 /// or not at all.
-public struct ClipboardSnapshot: Sendable {
-    public var items: [[String: Data]]
+///
+/// Each item keeps its types in their original order. That order is fidelity
+/// order, richest first, and a receiving app pastes the first type it
+/// understands: a dictionary would shuffle it and could turn rich text into
+/// plain text on restore.
+public struct ClipboardSnapshot: Equatable, Sendable {
+    public var items: [[PasteboardFlavor]]
 
-    public init(items: [[String: Data]]) { self.items = items }
+    public init(items: [[PasteboardFlavor]]) { self.items = items }
 }
 
 /// The system side of pasting. Implemented on AppKit/AX/Quartz by the app, and

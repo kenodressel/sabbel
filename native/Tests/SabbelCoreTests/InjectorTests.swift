@@ -259,9 +259,9 @@ import Testing
     // MARK: paste confirmation and restore
 
     @Test func restoresSnapshotAfterPaste() throws {
-        let original: [[String: Data]] = [
-            ["public.png": Data("img".utf8), FakePasteEnvironment.stringType: Data("txt".utf8)],
-            ["public.rtf": Data("rtf".utf8)],
+        let original: [[PasteboardFlavor]] = [
+            [PasteboardFlavor("public.png", Data("img".utf8)), PasteboardFlavor(FakePasteEnvironment.stringType, Data("txt".utf8))],
+            [PasteboardFlavor("public.rtf", Data("rtf".utf8))],
         ]
         let env = FakePasteEnvironment(clipboard: original)
         env.frontmostPIDAnswer = { _, _ in 42 }
@@ -454,8 +454,8 @@ import Testing
     /// during the modifier wait: the pid still matches, so only a second secure
     /// check stops the Cmd+V.
     @Test func focusMovedIntoSecureFieldBeforeCommandV() throws {
-        let original: [[String: Data]] = [
-            ["public.png": Data("img".utf8), FakePasteEnvironment.stringType: Data("txt".utf8)],
+        let original: [[PasteboardFlavor]] = [
+            [PasteboardFlavor("public.png", Data("img".utf8)), PasteboardFlavor(FakePasteEnvironment.stringType, Data("txt".utf8))],
         ]
         let env = FakePasteEnvironment(clipboard: original)
         env.frontmostPIDAnswer = { _, _ in 42 }

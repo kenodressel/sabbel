@@ -68,12 +68,8 @@ public final class SystemPasteEnvironment: PasteEnvironment, @unchecked Sendable
     // MARK: pasteboard
 
     public func captureClipboard() -> ClipboardSnapshot {
-        let items = (pasteboard.pasteboardItems ?? []).map { item -> [String: Data] in
-            var dict: [String: Data] = [:]
-            for type in item.types {
-                if let data = item.data(forType: type) { dict[type.rawValue] = data }
-            }
-            return dict
+        let items = (pasteboard.pasteboardItems ?? []).map { item -> [PasteboardFlavor] in
+            item.types.compactMap { type in item.data(forType: type).map { PasteboardFlavor(type.rawValue, $0) } }
         }
         return ClipboardSnapshot(items: items)
     }
@@ -81,9 +77,10 @@ public final class SystemPasteEnvironment: PasteEnvironment, @unchecked Sendable
     public func restoreClipboard(_ snapshot: ClipboardSnapshot) {
         pasteboard.clearContents()
         guard !snapshot.items.isEmpty else { return }
-        let items = snapshot.items.map { dict -> NSPasteboardItem in
+        let items = snapshot.items.map { flavors -> NSPasteboardItem in
             let item = NSPasteboardItem()
-            for (type, data) in dict { item.setData(data, forType: NSPasteboard.PasteboardType(type)) }
+            // In the captured order: it is the item's fidelity order.
+            for flavor in flavors { item.setData(flavor.data, forType: NSPasteboard.PasteboardType(flavor.type)) }
             return item
         }
         pasteboard.writeObjects(items)
