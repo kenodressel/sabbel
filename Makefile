@@ -15,7 +15,7 @@ LAUNCH_SERVICE = $(LAUNCH_DOMAIN)/$(PLIST_NAME)
 # it installed into .venv; a bundle is only standalone when built from one.
 BUILD_PYTHON ?= uv run --extra build python
 
-.PHONY: run test test-model build-app install-app reinstall-app ensure-app-installed autostart autostart-remove stop restart status download-model clean native-build native-test help
+.PHONY: run test test-model build-app install-app reinstall-app ensure-app-installed autostart autostart-remove stop restart status download-model clean native-build native-test native-test-model help
 
 run: ## Start Sabbel (foreground)
 	uv run sabbel
@@ -162,6 +162,9 @@ native-build: ## Build the native Swift package (release)
 
 native-test: ## Run the native Swift tests
 	$(SWIFT) test --package-path native
+
+native-test-model: ## Run the native tests against the real Parakeet model (slow, needs the model and the Anna voice)
+	SABBEL_MODEL_TESTS=1 $(SWIFT) test --package-path native --filter SabbelEngineTests
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'

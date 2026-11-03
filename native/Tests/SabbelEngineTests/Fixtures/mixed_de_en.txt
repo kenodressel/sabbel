@@ -1,0 +1,10 @@
+Wir müssen das Deployment bis Freitag fertig haben | Deployment
+Kannst du bitte den Pull Request noch einmal anschauen | Pull Request
+Das neue Feature ist im nächsten Release enthalten | Feature, Release
+Morgen früh haben wir ein kurzes Meeting zum Backlog | Meeting, Backlog
+Der Bug im Login ist leider noch nicht behoben | Bug
+Im Sprint haben wir drei Tickets nicht geschafft | Sprint
+Das Dashboard zeigt die Zahlen von gestern an | Dashboard
+Ich habe den Workflow für das Testen angepasst | Workflow
+Bitte mergen den Branch erst nach dem Code Review | Branch, Code Review
+Das Update für die Software kommt nächste Woche | Update

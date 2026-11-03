@@ -55,3 +55,16 @@ jobs:
 
       - name: Run native tests
         run: make native-test
+
+      # The Parakeet v3 CoreML models (~0.5 GB) are cached so only the first run
+      # (or a FluidAudio bump, which changes Package.resolved) downloads them.
+      # The first load still compiles the models for a minute or two.
+      - name: Cache Parakeet models
+        uses: actions/cache@v6
+        with:
+          path: ~/Library/Application Support/FluidAudio/Models
+          key: parakeet-models-${{ hashFiles('native/Package.resolved') }}
+
+      - name: Run native model tests
+        run: make native-test-model
+        timeout-minutes: 20

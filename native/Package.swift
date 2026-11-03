@@ -16,6 +16,6 @@ let package = Package(
         .executableTarget(name: "Sabbel", dependencies: ["SabbelCore", "SabbelEngine"]),
         .executableTarget(name: "sabbel-eval", dependencies: ["SabbelCore", "SabbelEngine"]),
         .testTarget(name: "SabbelCoreTests", dependencies: ["SabbelCore"]),
-        .testTarget(name: "SabbelEngineTests", dependencies: ["SabbelEngine"]),
+        .testTarget(name: "SabbelEngineTests", dependencies: ["SabbelEngine"], exclude: ["Fixtures"]),
     ]
 )
