@@ -12,15 +12,32 @@ public actor ParakeetRecognizer: Recognizer {
 
     /// Downloads the model if it is not cached, then loads it. The first load
     /// compiles the CoreML models, which takes a minute or two; later loads are fast.
-    /// `progress` reports the download as a fraction in 0...1.
+    /// `progress` reports each phase (see `event(_:)`).
     public static func load(version: AsrModelVersion = .v3,
-                            progress: (@Sendable (Double) -> Void)? = nil) async throws -> ParakeetRecognizer {
+                            progress: (@Sendable (ModelLoadEvent) -> Void)? = nil) async throws -> ParakeetRecognizer {
         let models = try await AsrModels.downloadAndLoad(
             version: version,
-            progressHandler: progress.map { report in { @Sendable p in report(p.fractionCompleted) } })
+            progressHandler: progress.map { report in { @Sendable p in report(event(p)) } })
         let asr = AsrManager(config: .default)
         try await asr.loadModels(models)
         return ParakeetRecognizer(asr: asr)
+    }
+
+    /// The share of a repo load's fraction that FluidAudio gives the download
+    /// (`ModelHub.loadModels` reports with `downloadPhaseWeight: 0.5`; compile
+    /// takes the rest). Dividing by it gives the download's own 0...1.
+    static let repoDownloadWeight = 0.5
+
+    /// Maps a FluidAudio progress report to the app's load event.
+    static func event(_ progress: DownloadProgress) -> ModelLoadEvent {
+        switch progress.phase {
+        case .listing:
+            return .listing
+        case .downloading(_, let totalFiles):
+            return .downloading(fraction: min(1, progress.fractionCompleted / repoDownloadWeight), totalFiles: totalFiles)
+        case .compiling:
+            return .loading
+        }
     }
 
     /// Overlapping takes call this concurrently, and the actor is reentrant

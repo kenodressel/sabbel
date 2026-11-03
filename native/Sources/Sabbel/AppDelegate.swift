@@ -24,6 +24,7 @@ import SabbelSystem
     private var tap: HotkeyTap?
     private var hotkey = HotkeyStateMachine()
     private var loggedModelDecile = -1
+    private var modelLoad = ModelLoadProgress()
 
     /// `SabbelVersion` from Info.plist; the unbundled binary is `dev`.
     static var version: String {
@@ -141,9 +142,9 @@ import SabbelSystem
         // The delegate lives as long as the app, so the task holds it strongly.
         Task.detached(priority: .userInitiated) { [self] in
             do {
-                let parakeet = try await ParakeetRecognizer.load(progress: { fraction in
+                let parakeet = try await ParakeetRecognizer.load(progress: { event in
                     DispatchQueue.main.async {
-                        MainActor.assumeIsolated { self.modelProgress(fraction) }
+                        MainActor.assumeIsolated { self.modelProgress(event) }
                     }
                 })
                 slot.set(parakeet)
@@ -166,15 +167,18 @@ import SabbelSystem
         coordinator?.modelState = .failed(message)
     }
 
-    /// Download progress. Ignored once the model is ready or failed, so a late
-    /// progress report can never put the app back into "loading".
-    private func modelProgress(_ fraction: Double) {
+    /// Download and load progress. Ignored once the model is ready or failed,
+    /// so a late progress report can never put the app back into "loading".
+    private func modelProgress(_ event: ModelLoadEvent) {
         guard let coordinator, case .loading = coordinator.modelState else { return }
-        coordinator.modelState = .loading(progress: fraction)
-        let decile = Int((fraction * 10).rounded(.down))
-        if decile > loggedModelDecile {
-            loggedModelDecile = decile
-            log.info("Model download \(decile * 10)%")
+        let state = modelLoad.state(after: event)
+        coordinator.modelState = state
+        if case .loading(let fraction?) = state {
+            let decile = Int((fraction * 10).rounded(.down))
+            if decile > loggedModelDecile {
+                loggedModelDecile = decile
+                log.info("Model download \(decile * 10)%")
+            }
         }
     }
 }

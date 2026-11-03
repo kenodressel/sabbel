@@ -163,14 +163,15 @@ import SabbelSystem
         let slot = recognizer
         let coordinator = self.coordinator!
         let log = self.log!
+        let progress = LoadProgressBox()
         Task.detached(priority: .userInitiated) {
             do {
-                let parakeet = try await ParakeetRecognizer.load(progress: { fraction in
+                let parakeet = try await ParakeetRecognizer.load(progress: { event in
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
                             // A late report must never put the app back into "loading".
                             guard case .loading = coordinator.modelState else { return }
-                            coordinator.modelState = .loading(progress: fraction)
+                            coordinator.modelState = progress.value.state(after: event)
                         }
                     }
                 })
@@ -460,6 +461,11 @@ import SabbelSystem
 /// The coordinator's UI in the e2e run: the real menu bar and live panel, with
 /// every status recorded. Notices are recorded instead of posted: a notice is
 /// itself a result worth checking, and banners would pile up on every run.
+/// The model-load progress state, owned by the main actor.
+@MainActor final class LoadProgressBox {
+    var value = ModelLoadProgress()
+}
+
 @MainActor final class RecordingUI: SabbelUI {
     private let menuBar: MenuBar
     weak var coordinator: TakeCoordinator?
