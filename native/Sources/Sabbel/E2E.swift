@@ -24,8 +24,8 @@ import SabbelSystem
 /// running Sabbel.
 ///
 /// Besides e2e.py's checks, three takes differ:
-/// - the second runs with the live panel shown: the text must still land in
-///   TextEdit, and Sabbel must not be frontmost when Cmd+V is posted;
+/// - the second runs with live text in the overlay: the text must still land
+///   in TextEdit, and Sabbel must not be frontmost when Cmd+V is posted;
 /// - the third has Finder take the front right before Cmd+V: the text must be
 ///   held back in the clipboard, with the matching notice;
 /// - every take's hotkey release → Cmd+V time must stay within 500 ms.
@@ -219,12 +219,12 @@ import SabbelSystem
             let kind = E2ERules.kind(ofTake: passed)
             let scenario = switch kind {
             case .plain: ""
-            case .livePanel: " (live panel open)"
+            case .liveText: " (overlay with live text)"
             case .focusLost: " (Finder takes the front right before Cmd+V)"
             }
             print("take \(passed + 1)/\(runs)\(scenario)")
             _ = await Self.osa("tell application \"TextEdit\" to set text of \(docRef) to \"\"")
-            if kind == .livePanel { menuBar.showLiveText() }
+            if kind == .liveText { menuBar.setOverlayStyle(.text) }
 
             var target: FocusTarget?
             var inFront = false
@@ -340,11 +340,11 @@ import SabbelSystem
             checks.check(text == spoken, "text landed in the document", Self.repr(text))
             checks.check(clipboard == E2ERules.sentinel, "clipboard restored", Self.repr(clipboard))
             checks.check(ui.notices.isEmpty, "no notification", String(describing: ui.notices))
-            if kind == .livePanel {
+            if kind == .liveText {
                 let front = record.commandV.first?.frontmostPID
-                let open = menuBar.livePanelOpen
-                checks.check(open && front != nil && front != getpid() && text == spoken, "live panel open",
-                             "panel \(open ? "open" : "closed"), \(Self.appName(front)) in front at Cmd+V")
+                let on = menuBar.overlayStyle == .text
+                checks.check(on && front != nil && front != getpid() && text == spoken, "overlay with live text",
+                             "live text \(on ? "on" : "off"), \(Self.appName(front)) in front at Cmd+V")
             }
             passed += 1
         }
@@ -463,7 +463,7 @@ import SabbelSystem
     var value = ModelLoadProgress()
 }
 
-/// The coordinator's UI in the e2e run: the real menu bar and live panel, with
+/// The coordinator's UI in the e2e run: the real menu bar and overlay, with
 /// every status recorded. Notices are recorded instead of posted: a notice is
 /// itself a result worth checking, and banners would pile up on every run.
 @MainActor final class RecordingUI: SabbelUI {

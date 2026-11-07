@@ -131,6 +131,28 @@ import Testing
         #expect(m.hideAt == nil)
     }
 
+    @Test func switchingToTextKeepsTheTakeOnScreen() {
+        var m = OverlayMachine(style: .minimal)
+        m.handle(.started(take: 1), at: 0)
+        m.style = .text
+        #expect(m.phase == .recording(since: 0))
+        m.handle(.released(take: 1), at: 2)
+        #expect(m.phase == .finishing(elapsed: 2))
+    }
+
+    @Test func switchingOffHidesAndIgnoresTheRestOfTheTake() {
+        var m = OverlayMachine(style: .text)
+        m.handle(.started(take: 1), at: 0)
+        m.style = .off
+        #expect(m.phase == .hidden)
+        #expect(m.hideAt == nil)
+        m.handle(.released(take: 1), at: 2)
+        #expect(m.phase == .hidden)
+        m.style = .minimal
+        m.handle(.finished(take: 1, .pasted), at: 3)
+        #expect(m.phase == .hidden)
+    }
+
     @Test func releaseShowsFinishing() {
         var m = OverlayMachine(style: .minimal)
         m.handle(.started(take: 1), at: 0)

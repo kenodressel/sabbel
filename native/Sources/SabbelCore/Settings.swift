@@ -161,6 +161,9 @@ public struct SabbelSettings: Equatable, Sendable {
             if device is NSNull { audioDevice = nil }
             else if let name = device as? String { audioDevice = name }
         }
+        if let raw = prefs["overlay_style"] as? String, let style = OverlayStyle(rawValue: raw) {
+            overlayStyle = style
+        }
     }
 }
 

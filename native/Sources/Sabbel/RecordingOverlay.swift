@@ -10,7 +10,7 @@ import SwiftUI
     @Published var bars = LevelBars()
     @Published var settled = ""
     @Published var provisional = ""
-    let showsText: Bool
+    @Published var showsText: Bool
 
     init(showsText: Bool) { self.showsText = showsText }
 }
@@ -43,6 +43,17 @@ private enum OverlayLayout {
     init(style: OverlayStyle) {
         machine = OverlayMachine(style: style)
         model = OverlayModel(showsText: style == .text)
+    }
+
+    /// The menu's "Show Live Text" switches between `.minimal` and `.text`,
+    /// also in the middle of a take.
+    var style: OverlayStyle {
+        get { machine.style }
+        set {
+            machine.style = newValue
+            model.showsText = newValue == .text
+            if newValue == .off { render() }
+        }
     }
 
     func handle(_ event: TakeEvent) {
@@ -167,6 +178,13 @@ private enum OverlayLayout {
         panel.contentView = host
         return panel
     }
+}
+
+/// Structurally unable to take focus: whatever is clicked, it never becomes
+/// the key or main window, so keystrokes keep going to the app being dictated into.
+final class NonKeyPanel: NSPanel {
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
 }
 
 // MARK: views

@@ -88,7 +88,15 @@ public struct OverlayMachine: Equatable, Sendable {
     /// The fade-out once hidden.
     public static let fadeDuration: TimeInterval = 0.2
 
-    public let style: OverlayStyle
+    /// Changeable at any time; switching to `.off` hides whatever is showing.
+    public var style: OverlayStyle {
+        didSet {
+            guard style == .off else { return }
+            phase = .hidden
+            hideAt = nil
+            take = nil
+        }
+    }
     public private(set) var phase: OverlayPhase = .hidden
     /// When the result on screen should go; nil unless a result is showing.
     public private(set) var hideAt: TimeInterval?

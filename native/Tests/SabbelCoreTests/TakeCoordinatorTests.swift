@@ -362,6 +362,30 @@ final class Harness {
         #expect(h.ui.lives.allSatisfy { !$0.masked })
     }
 
+    /// The settled text goes through the pipeline's preview; the provisional
+    /// tail is still changing and is shown as recognised.
+    @Test func liveTextShowsTheSettledTextPreviewed() async {
+        let h = Harness(recognizers: [FakeRecognizer(script: FakeRecognizer.script(until: 2.5), mangle: .none)],
+                        pipeline: TextPipeline([], preview: [{ text, _ in text.uppercased() }]))
+        h.take(Harness.speech(2.5))
+        await h.coordinator.waitUntilIdle()
+        #expect(await eventually { h.ui.lives.contains { !$0.text.settled.isEmpty } })
+        #expect(h.ui.lives.allSatisfy { $0.text.settled == $0.text.settled.uppercased() })
+        #expect(h.ui.lives.allSatisfy { $0.text.provisional == $0.text.provisional.lowercased() })
+        #expect(h.ui.lives.contains { $0.text.settled.contains("W0") })
+    }
+
+    @Test func secureLiveTextIsNotPreviewed() async {
+        let seen = LockedBox(0)
+        let h = Harness(focus: FakeFocusProbe([(Harness.target, true)]),
+                        recognizers: [FakeRecognizer(script: FakeRecognizer.script(until: 2.5), mangle: .none)],
+                        pipeline: TextPipeline([], preview: [{ text, _ in seen.mutate { $0 += 1 }; return text }]))
+        h.take(Harness.speech(2.5))
+        await h.coordinator.waitUntilIdle()
+        #expect(await eventually { h.ui.lives.contains { !$0.text.settled.isEmpty } })
+        #expect(seen.value == 0)
+    }
+
     @Test func ownPidTargetIsNeverPastedInto() async {
         let h = Harness(focus: FakeFocusProbe([(FocusTarget(pid: 4_242, name: "Sabbel"), false)], ownPID: 4_242))
         h.take()

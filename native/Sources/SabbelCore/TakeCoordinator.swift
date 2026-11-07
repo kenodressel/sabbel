@@ -116,6 +116,8 @@ public final class TakeCoordinator {
     /// kept for a take that started in a secure field.
     private var lastAudio: TakeAudio?
     private var lastTarget: FocusTarget?
+    /// For the live text's preview; the paste line runs the final pass.
+    private let pipeline: TextPipeline
 
     /// - Parameters:
     ///   - pipeline: rewrites the final text before it is pasted and saved.
@@ -140,6 +142,7 @@ public final class TakeCoordinator {
         self.injector = injector
         self.date = date
         self.audioCapacity = audioCapacity
+        self.pipeline = pipeline
         recent = RecentDictations(limit: settings.recentLimit)
         historyEnabled = settings.historyEnabled
         audioDevice = settings.audioDevice
@@ -205,7 +208,7 @@ public final class TakeCoordinator {
         let focused = focus.capture()
         var target = focused.target
         if target?.pid == focus.ownPID {
-            // Sabbel's own window (the live panel) is never the destination. With
+            // Sabbel itself (its menu, say) is never the destination. With
             // no target the injector judges whatever field is frontmost at paste
             // time, and leaves the text in the clipboard if that is Sabbel again.
             target = nil
@@ -256,10 +259,22 @@ public final class TakeCoordinator {
         liveTakeID = id
         let secure = focused.secure
         ui.live(LiveText(settled: "", provisional: ""), masked: secure)
+        let pipeline = self.pipeline, previewTarget = target
         let live = Task { [weak self] in
+            // Settled text only grows, so its preview is redone only when it changes.
+            var settled = "", preview = ""
             for await text in transcriber.updates {
                 guard let self else { return }
-                if self.liveTakeID == id { self.ui.live(text, masked: secure) }
+                guard self.liveTakeID == id else { continue }
+                if secure {
+                    self.ui.live(text, masked: true)
+                    continue
+                }
+                if text.settled != settled {
+                    settled = text.settled
+                    preview = pipeline.preview(settled, target: previewTarget)
+                }
+                self.ui.live(LiveText(settled: preview, provisional: text.provisional), masked: false)
             }
         }
 

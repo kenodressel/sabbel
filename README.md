@@ -104,7 +104,7 @@ Updates keep those permissions, because every release is signed with the same ce
 | Release **Right Option** (⌥) | The text is pasted into the focused app |
 | Press **Esc** while holding | Cancels the take |
 
-Sabbel transcribes while you speak. Sabbel menu → **Show Live Text** opens a small window that shows the text as it forms, without taking the focus from the app you are dictating into.
+Sabbel transcribes while you speak. Sabbel menu → **Show Live Text** adds the last two lines of text to the recording overlay as it forms, already run through the glossary, voice commands and tidy-up. Sabbel remembers the choice.
 
 The menu bar icon shows the current state:
 
@@ -147,7 +147,8 @@ with the mouse pointer: a red dot, level bars and the elapsed time. After you
 release it shows a spinner, then "Pasted", "Copied" or what went wrong, and
 fades out. It never takes focus or catches clicks. `style = "text"` also shows
 the last two lines of live text under the bars ("•••" in password fields);
-`"off"` hides it. The "Show Live Text" window is independent of this setting.
+`"off"` hides it. The menu's **Show Live Text** switches between `"minimal"`
+and `"text"` and wins over this setting.
 
 `app_rules` drops the final full stop in chat, terminal and IDE apps (Slack, Discord, Teams, WhatsApp, Telegram, Signal, Messages; Terminal, iTerm, Ghostty, Warp, kitty, Alacritty, WezTerm; VS Code, Cursor, Zed, JetBrains, Xcode, Windsurf). Question marks, exclamation marks, ellipses and abbreviations ("z. B.", "usw.") keep theirs; other apps are untouched.
 

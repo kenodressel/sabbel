@@ -75,8 +75,7 @@ public final class Notifier: NSObject, UNUserNotificationCenterDelegate, @unchec
         }
     }
 
-    /// Show banners even while Sabbel counts as the active app (menu open,
-    /// live panel clicked); by default macOS hides them then.
+    /// Show banners even while Sabbel counts as the active app (menu open); by default macOS hides them then.
     public func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                                        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
         completionHandler([.banner, .list])

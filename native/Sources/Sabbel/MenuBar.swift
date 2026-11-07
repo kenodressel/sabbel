@@ -5,8 +5,8 @@ import SabbelSystem
 
 /// The status item and its menu; the coordinator's `SabbelUI`.
 ///
-/// Menu order matches the Python app: Status, History ▸, Microphone ▸, Show
-/// Live Text, the update item (not on dev builds), Copy diagnostics, then the
+/// Menu order: Status, History ▸, Recent ▸, Microphone ▸, Edit Glossary…,
+/// Show Live Text (the overlay's text line), the update item (not on dev builds), Copy diagnostics, then the
 /// version and Quit.
 @MainActor final class MenuBar: NSObject, SabbelUI, NSMenuDelegate {
     weak var coordinator: TakeCoordinator?
@@ -18,12 +18,12 @@ import SabbelSystem
     private let notifier: Notifier
     private let updates: UpdateChecker?
     private let log: @Sendable (String) -> Void
-    private let livePanel = LivePanel()
     private let overlay: RecordingOverlay
 
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let statusLine = NSMenuItem(title: "Status: Starting", action: nil, keyEquivalent: "")
     private let historyToggle = NSMenuItem(title: "Save history", action: nil, keyEquivalent: "")
+    private let liveTextToggle = NSMenuItem(title: "Show Live Text", action: nil, keyEquivalent: "")
     private let micMenu = NSMenu(title: "Microphone")
     private let recentMenu = NSMenu(title: "Recent")
     private let recentItem = NSMenuItem(title: "Recent", action: nil, keyEquivalent: "")
@@ -88,7 +88,10 @@ import SabbelSystem
         menu.addItem(micItem)
         menu.addItem(item("Edit Glossary…", #selector(editGlossary)))
 
-        menu.addItem(item("Show Live Text", #selector(showLiveText)))
+        liveTextToggle.target = self
+        liveTextToggle.action = #selector(toggleLiveText)
+        liveTextToggle.state = overlay.style == .text ? .on : .off
+        menu.addItem(liveTextToggle)
         if updates != nil {
             let update = item("Check for updates", #selector(updateClicked))
             updateItem = update
@@ -125,7 +128,6 @@ import SabbelSystem
     func notify(_ notice: Notice) { notifier.post(notice) }
 
     func live(_ text: LiveText, masked: Bool) {
-        livePanel.update(text, masked: masked)
         overlay.live(text, masked: masked)
     }
 
@@ -317,10 +319,27 @@ import SabbelSystem
 
     // MARK: other items
 
-    /// Internal, not private: the `--e2e` run opens the panel for its second take.
-    @objc func showLiveText() { livePanel.show() }
+    /// Live text under the overlay's bars, or the bars alone. Remembered in
+    /// preferences.json over `[overlay] style`; turning it on also brings back
+    /// an overlay set to "off".
+    @objc private func toggleLiveText() {
+        let style: OverlayStyle = overlay.style == .text ? .minimal : .text
+        setOverlayStyle(style)
+        do {
+            try Preferences.save("overlay_style", style.rawValue, at: paths.preferencesJSON)
+        } catch {
+            log("Failed to save overlay_style: \(error)")
+        }
+    }
 
-    var livePanelOpen: Bool { livePanel.isOpen }
+    /// Internal, not private: the `--e2e` run turns live text on for its
+    /// second take without touching the saved preference.
+    func setOverlayStyle(_ style: OverlayStyle) {
+        overlay.style = style
+        liveTextToggle.state = style == .text ? .on : .off
+    }
+
+    var overlayStyle: OverlayStyle { overlay.style }
 
     /// Everything a bug report needs, on the clipboard as an ordinary
     /// (non-transient) item so clipboard managers keep it.
