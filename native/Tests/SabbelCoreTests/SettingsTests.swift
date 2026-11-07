@@ -124,6 +124,13 @@ private func load(toml: String? = nil, prefs: String? = nil) -> (SabbelSettings,
         #expect(!load(toml: "[history]\nenabled = true", prefs: #"{"history_enabled": false}"#).0.historyEnabled)
     }
 
+    @Test func overlayStylePreferenceOverridesToml() {
+        #expect(load(toml: "[overlay]\nstyle = \"minimal\"", prefs: #"{"overlay_style": "text"}"#).0.overlayStyle == .text)
+        #expect(load(toml: "[overlay]\nstyle = \"off\"", prefs: #"{"overlay_style": "minimal"}"#).0.overlayStyle == .minimal)
+        #expect(load(toml: "[overlay]\nstyle = \"text\"", prefs: #"{"overlay_style": "loud"}"#).0.overlayStyle == .text)
+        #expect(load(toml: "[overlay]\nstyle = \"text\"", prefs: #"{"overlay_style": true}"#).0.overlayStyle == .text)
+    }
+
     @Test func audioDevice() {
         #expect(load(prefs: #"{"audio_device": "Dell WD22 Mic"}"#).0.audioDevice == "Dell WD22 Mic")
         #expect(load(prefs: #"{"audio_device": null}"#).0.audioDevice == nil)

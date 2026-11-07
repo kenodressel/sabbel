@@ -23,14 +23,14 @@ public enum E2ERules {
     /// What a take does besides dictating into TextEdit.
     public enum TakeKind: Equatable, Sendable {
         case plain
-        /// Runs with the live panel shown.
-        case livePanel
+        /// Runs with the overlay showing live text.
+        case liveText
         /// Another app (Finder) takes the front right before Cmd+V.
         case focusLost
     }
 
     /// `RUNS` from the environment, as in e2e.py, but never fewer than the
-    /// three takes the live-panel and focus-loss scenarios need.
+    /// three takes the live-text and focus-loss scenarios need.
     public static func runs(environment: [String: String]) -> Int {
         max(defaultRuns, environment["RUNS"].flatMap { Int($0) } ?? defaultRuns)
     }
@@ -39,7 +39,7 @@ public enum E2ERules {
     /// (interrupted takes are retried under the same index).
     public static func kind(ofTake index: Int) -> TakeKind {
         switch index {
-        case 1: .livePanel
+        case 1: .liveText
         case 2: .focusLost
         default: .plain
         }

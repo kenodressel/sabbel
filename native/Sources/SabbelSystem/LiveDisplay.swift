@@ -1,6 +1,6 @@
 import SabbelCore
 
-/// What the live panel renders for a take's live text.
+/// What the overlay renders for a take's live text.
 public enum LiveDisplay {
     /// The settled text (shown in the primary colour) and the provisional text
     /// (secondary), with one space between them.

@@ -14,7 +14,7 @@ import Testing
 
     @Test func secondTakeShowsThePanelThirdLosesFocus() {
         #expect(E2ERules.kind(ofTake: 0) == .plain)
-        #expect(E2ERules.kind(ofTake: 1) == .livePanel)
+        #expect(E2ERules.kind(ofTake: 1) == .liveText)
         #expect(E2ERules.kind(ofTake: 2) == .focusLost)
         #expect(E2ERules.kind(ofTake: 3) == .plain)
     }
@@ -36,7 +36,7 @@ import Testing
     @Test func anotherAppTakingFocusIsRetried() {
         #expect(E2ERules.isInterruption(kind: .plain, outcome: .focusChanged, frontmostPID: 7,
                                         targetPID: 3, ownPID: 5, interruptions: 0))
-        #expect(E2ERules.isInterruption(kind: .livePanel, outcome: .focusChanged, frontmostPID: nil,
+        #expect(E2ERules.isInterruption(kind: .liveText, outcome: .focusChanged, frontmostPID: nil,
                                         targetPID: 3, ownPID: 5, interruptions: 2))
     }
 
@@ -44,8 +44,8 @@ import Testing
         // The focus-loss take loses focus on purpose: its outcome is the result, never retried.
         #expect(!E2ERules.isInterruption(kind: .focusLost, outcome: .focusChanged, frontmostPID: 7,
                                          targetPID: 3, ownPID: 5, interruptions: 0))
-        // Sabbel in front (its live panel took focus) is Sabbel's doing: a failure, not a retry.
-        #expect(!E2ERules.isInterruption(kind: .livePanel, outcome: .focusChanged, frontmostPID: 5,
+        // Sabbel in front (its overlay took focus) is Sabbel's doing: a failure, not a retry.
+        #expect(!E2ERules.isInterruption(kind: .liveText, outcome: .focusChanged, frontmostPID: 5,
                                          targetPID: 3, ownPID: 5, interruptions: 0))
         #expect(!E2ERules.isInterruption(kind: .plain, outcome: .focusChanged, frontmostPID: 3,
                                          targetPID: 3, ownPID: 5, interruptions: 0))

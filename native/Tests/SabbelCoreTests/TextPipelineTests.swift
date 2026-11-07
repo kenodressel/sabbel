@@ -36,6 +36,38 @@ import Testing
         let plain = TextPipeline.standard(settings: off, paths: paths, log: { _ in })
         #expect(plain.process("Ähm, wir nutzen Kuber Netties.", target: slack) == "Ähm, wir nutzen Kubernetes.")
     }
+
+    @Test func previewHasNoStagesUnlessGiven() {
+        let pipeline = TextPipeline([{ text, _ in text.uppercased() }])
+        #expect(pipeline.preview("ähm hallo", target: nil) == "ähm hallo")
+        #expect(TextPipeline.identity.preview("ähm hallo", target: nil) == "ähm hallo")
+        let given = TextPipeline([], preview: [{ text, _ in text + "a" }, { text, _ in text + "b" }])
+        #expect(given.preview("x", target: nil) == "xab")
+        #expect(given.process("x", target: nil) == "x")
+    }
+
+    /// The live text shows the corrected words, but keeps the full stop the
+    /// per-app rules only drop from the finished text.
+    @Test func standardPreviewIsGlossaryCommandsAndTidyWithoutAppRules() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sabbel-pipeline-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let paths = SabbelPaths(configDir: dir)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try "Kubernetes: Kuber Netties\n".write(to: paths.glossary, atomically: true, encoding: .utf8)
+        let lines = LockedBox<[String]>([])
+        let pipeline = TextPipeline.standard(settings: SabbelSettings(), paths: paths,
+                                             log: { line in lines.mutate { $0.append(line) } })
+        let slack = FocusTarget(pid: 7, name: "Slack", bundleID: "com.tinyspeck.slackmacgap")
+        let spoken = "Ähm, wir nutzen Kuber Netties, neue Zeile, läuft."
+        #expect(pipeline.preview(spoken, target: slack) == "Wir nutzen Kubernetes\nläuft.")
+        #expect(!lines.value.contains { $0.hasSuffix("replacements") || $0.hasPrefix("Tidy:") })
+
+        var off = SabbelSettings()
+        off.tidyText = false
+        off.voiceCommands = false
+        let plain = TextPipeline.standard(settings: off, paths: paths, log: { _ in })
+        #expect(plain.preview(spoken, target: slack) == "Ähm, wir nutzen Kubernetes, neue Zeile, läuft.")
+    }
 }
 
 @Suite struct VoiceCommandPipelineTests {

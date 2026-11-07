@@ -180,10 +180,11 @@ public final class GlossaryStage: @unchecked Sendable {
         self.log = log
     }
 
-    public func apply(_ text: String) -> String {
+    /// `quiet` skips the replacement count, for the live text.
+    public func apply(_ text: String, quiet: Bool = false) -> String {
         let current = currentGlossary()
         let (result, replacements) = current.apply(text)
-        if replacements > 0 { log("Glossary: \(replacements) replacements") }
+        if replacements > 0, !quiet { log("Glossary: \(replacements) replacements") }
         return result
     }
 
