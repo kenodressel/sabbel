@@ -132,3 +132,30 @@ private final class Collected: @unchecked Sendable {
     var count: Int { lock.withLock { samples.count } }
     var peak: Float { lock.withLock { samples.map(abs).max() ?? 0 } }
 }
+
+@Suite struct RestartFormatTests {
+    /// The field case: the engine still reports 48 kHz, the camera now runs at
+    /// 44.1 kHz. The tap must use the hardware rate or AVAudioEngine rejects it.
+    @Test func takesTheSampleRateFromTheHardware() throws {
+        let reported = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1)!
+        let hardware = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1)!
+        let format = try MicCapture.restartFormat(reported: reported, hardware: hardware)
+        #expect(format.sampleRate == 44_100)
+        #expect(format.channelCount == 1)
+        #expect(format.commonFormat == reported.commonFormat)
+    }
+
+    @Test func keepsTheReportedChannelLayout() throws {
+        let reported = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 2)!
+        let hardware = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1)!
+        let format = try MicCapture.restartFormat(reported: reported, hardware: hardware)
+        #expect(format.channelCount == 2)
+        #expect(format.isInterleaved == reported.isInterleaved)
+    }
+
+    @Test func fallsBackToTheReportedRateWhenTheHardwareHasNone() throws {
+        let reported = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1)!
+        let none = AVAudioFormat(standardFormatWithSampleRate: 0, channels: 1) ?? reported
+        #expect(try MicCapture.restartFormat(reported: reported, hardware: none).sampleRate == 48_000)
+    }
+}
