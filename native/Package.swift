@@ -13,7 +13,8 @@ let package = Package(
             "SabbelCore",
             .product(name: "FluidAudio", package: "FluidAudio"),
         ]),
-        .target(name: "SabbelSystem", dependencies: ["SabbelCore"], linkerSettings: [
+        .target(name: "SabbelObjC"),
+        .target(name: "SabbelSystem", dependencies: ["SabbelCore", "SabbelObjC"], linkerSettings: [
             .linkedFramework("AppKit"),
             .linkedFramework("ApplicationServices"),
             .linkedFramework("AVFoundation"),
