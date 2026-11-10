@@ -49,6 +49,15 @@ public final class MicCapture: AudioSource, @unchecked Sendable {
         let engine: AVAudioEngine
         let session: TapSession
         let observer: NSObjectProtocol
+        /// The device this take records from, for a restart on a fresh engine.
+        let choice: MicChoice
+
+        /// Stops the engine without ending the session. Main queue only.
+        func tearDown() {
+            NotificationCenter.default.removeObserver(observer)
+            engine.inputNode.removeTap(onBus: 0)
+            engine.stop()
+        }
     }
 
     public init(log: @escaping @Sendable (String) -> Void = { _ in }) {
@@ -78,38 +87,78 @@ public final class MicCapture: AudioSource, @unchecked Sendable {
     }
 
     public func stop() {
-        lock.lock()
-        let current = running
-        running = nil
-        lock.unlock()
-        guard let current else { return }
+        guard let current = lock.withLock({ () -> Running? in
+            defer { running = nil }
+            return running
+        }) else { return }
         current.session.end()
-        NotificationCenter.default.removeObserver(current.observer)
-        current.engine.inputNode.removeTap(onBus: 0)
-        current.engine.stop()
+        current.tearDown()
     }
 
     private func open(_ choice: MicChoice, onSamples: @escaping @Sendable ([Float]) -> Void) throws {
+        let take = try launch(choice) { try TapSession(inputFormat: $0, onSamples: onSamples) }
+        lock.withLock { running = take }
+    }
+
+    /// A fresh engine on `choice`, tapped and started. `session` gets the input
+    /// format and returns the session that receives the buffers.
+    private func launch(_ choice: MicChoice, session makeSession: (AVAudioFormat) throws -> TapSession) throws -> Running {
         let engine = AVAudioEngine()
         let input = engine.inputNode
         if case .device(let id) = choice {
             try Self.setDevice(id, on: input)
         }
-        let inFormat = input.outputFormat(forBus: 0)
-        guard inFormat.sampleRate > 0, inFormat.channelCount > 0 else { throw MicError.noInputDevice }
-        let session = try TapSession(inputFormat: inFormat, onSamples: onSamples)
-        Self.installTap(on: input, format: inFormat, session: session)
+        let format = try Self.usableFormat(input)
+        let session = try makeSession(format)
+        let observer = observeConfigurationChanges(of: engine, session: session)
+        do {
+            try Self.tapAndStart(engine, format: format, session: session)
+        } catch {
+            NotificationCenter.default.removeObserver(observer)
+            throw error
+        }
+        return Running(engine: engine, session: session, observer: observer, choice: choice)
+    }
 
-        // A configuration change (device unplugged, default switched, a headset
-        // switching profile) stops the engine underneath us.
-        //
-        // The handler runs on the engine's internal dispatch queue, where the
-        // engine must not be torn down or released (AVAudioEngine.h: it can
-        // deadlock). So it only decides and ends the sample flow; teardown and
-        // restart hop to the main queue, where the coordinator calls start/stop,
-        // and the engine's last reference is never dropped on that queue.
+    /// Taps the input in `format` and starts the engine; the tap is removed again
+    /// when this throws.
+    ///
+    /// Every engine call that can raise an Objective-C exception runs through
+    /// `catchingObjCException`: AVAudioEngine raises (rather than returning an
+    /// error) when a tap format does not match the device, and an uncaught
+    /// exception aborts the app.
+    private static func tapAndStart(_ engine: AVAudioEngine, format: AVAudioFormat, session: TapSession) throws {
+        let input = engine.inputNode
+        do {
+            try catchingObjCException {
+                input.installTap(onBus: 0, bufferSize: 4096, format: format) { buffer, _ in
+                    session.deliver(buffer)
+                }
+            }
+            try catchingObjCException { engine.prepare() }
+            var startError: Error?
+            try catchingObjCException {
+                do { try engine.start() } catch { startError = error }
+            }
+            if let startError { throw startError }
+        } catch {
+            input.removeTap(onBus: 0)
+            throw error
+        }
+    }
+
+    /// A configuration change (device unplugged, default switched, a headset
+    /// switching profile, a USB camera reconfiguring its mic) stops the engine
+    /// underneath us.
+    ///
+    /// The handler runs on the engine's internal dispatch queue, where the
+    /// engine must not be torn down or released (AVAudioEngine.h: it can
+    /// deadlock). So it only decides and ends the sample flow; teardown and
+    /// restart hop to the main queue, where the coordinator calls start/stop,
+    /// and the engine's last reference is never dropped on that queue.
+    private func observeConfigurationChanges(of engine: AVAudioEngine, session: TapSession) -> NSObjectProtocol {
         let log = self.log
-        let observer = NotificationCenter.default.addObserver(
+        return NotificationCenter.default.addObserver(
             forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil) { [weak self] _ in
             switch session.configurationChanged() {
             case .restart:
@@ -123,59 +172,59 @@ public final class MicCapture: AudioSource, @unchecked Sendable {
                 DispatchQueue.main.async { [weak self] in self?.stopIfCurrent(session) }
             }
         }
-
-        engine.prepare()
-        do {
-            try engine.start()
-        } catch {
-            session.end()
-            NotificationCenter.default.removeObserver(observer)
-            input.removeTap(onBus: 0)
-            throw error
-        }
-        lock.lock()
-        running = Running(engine: engine, session: session, observer: observer)
-        lock.unlock()
-    }
-
-    /// The tap only converts and hands over: no locks shared with stop(), no
-    /// Task per buffer. The coordinator owns the serial consumer.
-    private static func installTap(on input: AVAudioInputNode, format: AVAudioFormat, session: TapSession) {
-        input.installTap(onBus: 0, bufferSize: 4096, format: format) { buffer, _ in
-            session.deliver(buffer)
-        }
     }
 
     private func current(_ session: TapSession) -> Running? {
-        lock.lock()
-        defer { lock.unlock() }
-        return running?.session === session ? running : nil
+        lock.withLock { running?.session === session ? running : nil }
     }
 
-    /// Main queue only (see the observer in `open`).
+    /// Main queue only (see `observeConfigurationChanges`).
     private func stopIfCurrent(_ session: TapSession) {
         if current(session) != nil { stop() }
     }
 
-    /// A change before any audio arrived (e.g. AirPods switching to their
-    /// headset profile right after start) must not cost the take: re-tap the
-    /// input in its new format and start the engine again. Main queue only.
+    /// A change before any audio arrived (AirPods switching to their headset
+    /// profile, a USB camera reconfiguring its mic right after start) must not
+    /// cost the take: re-tap the input in its new format and start the engine
+    /// again. Main queue only.
+    ///
+    /// The reconfigured engine can reject the new tap (seen with an Insta360
+    /// Link 2C, whose engine raised in installTap). Then capture moves to a
+    /// fresh engine on the same device. Only the fallback: on a mic that
+    /// reconfigures whenever an engine starts on it, every fresh engine would
+    /// change again before its first buffer, while the reused one settles.
     private func restartIfCurrent(_ session: TapSession) {
         guard let take = current(session) else { return }
         let input = take.engine.inputNode
         input.removeTap(onBus: 0)
-        let format = input.outputFormat(forBus: 0)
         do {
-            guard format.sampleRate > 0, format.channelCount > 0 else { throw MicError.noInputDevice }
+            let format = try Self.usableFormat(input)
             try session.adopt(inputFormat: format)
-            Self.installTap(on: input, format: format, session: session)
-            take.engine.prepare()
-            try take.engine.start()
+            try Self.tapAndStart(take.engine, format: format, session: session)
             log("Capture restarted (\(Int(format.sampleRate)) Hz, \(format.channelCount) ch)")
+            return
+        } catch {
+            log("Could not restart capture on the reconfigured engine (\(error)) — trying a fresh one")
+        }
+        take.tearDown()
+        do {
+            let fresh = try launch(take.choice) { format in
+                try session.adopt(inputFormat: format)
+                return session
+            }
+            lock.withLock { running = fresh }
+            let format = fresh.engine.inputNode.outputFormat(forBus: 0)
+            log("Capture restarted on a fresh engine (\(Int(format.sampleRate)) Hz, \(format.channelCount) ch)")
         } catch {
             log("Could not restart capture after the configuration change (\(error)) — capture stopped")
             stop()
         }
+    }
+
+    private static func usableFormat(_ input: AVAudioInputNode) throws -> AVAudioFormat {
+        let format = input.outputFormat(forBus: 0)
+        guard format.sampleRate > 0, format.channelCount > 0 else { throw MicError.noInputDevice }
+        return format
     }
 
     // MARK: devices
