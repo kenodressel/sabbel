@@ -197,14 +197,16 @@ public final class MicCapture: AudioSource, @unchecked Sendable {
         guard let take = current(session) else { return }
         let input = take.engine.inputNode
         input.removeTap(onBus: 0)
+        let reported = input.outputFormat(forBus: 0)
         do {
-            let format = try Self.usableFormat(input)
+            let format = try Self.restartFormat(reported: reported, hardware: input.inputFormat(forBus: 0))
             try session.adopt(inputFormat: format)
             try Self.tapAndStart(take.engine, format: format, session: session)
-            log("Capture restarted (\(Int(format.sampleRate)) Hz, \(format.channelCount) ch)")
+            log("Capture restarted (\(Int(format.sampleRate)) Hz, \(format.channelCount) ch; engine reported \(Int(reported.sampleRate)) Hz)")
             return
         } catch {
-            log("Could not restart capture on the reconfigured engine (\(error)) — trying a fresh one")
+            log("Could not restart capture on the reconfigured engine (\(error); engine reported \(Int(reported.sampleRate)) Hz, "
+                + "hardware \(Int(input.inputFormat(forBus: 0).sampleRate)) Hz) — trying a fresh one")
         }
         take.tearDown()
         do {
@@ -219,6 +221,21 @@ public final class MicCapture: AudioSource, @unchecked Sendable {
             log("Could not restart capture after the configuration change (\(error)) — capture stopped")
             stop()
         }
+    }
+
+    /// The tap format after a configuration change. The engine keeps
+    /// reporting the input's old sample rate (`outputFormat`) after the device
+    /// switched, and AVAudioEngine rejects a tap whose rate differs from the
+    /// hardware's (`format.sampleRate == inputHWFormat.sampleRate`; an Insta360
+    /// Link 2C going 48 → 44.1 kHz on start). So the rate comes from the
+    /// hardware format (`inputFormat`), the rest from the reported format.
+    static func restartFormat(reported: AVAudioFormat, hardware: AVAudioFormat) throws -> AVAudioFormat {
+        let rate = hardware.sampleRate > 0 ? hardware.sampleRate : reported.sampleRate
+        guard rate > 0, reported.channelCount > 0,
+              let format = AVAudioFormat(commonFormat: reported.commonFormat, sampleRate: rate,
+                                         channels: reported.channelCount, interleaved: reported.isInterleaved)
+        else { throw MicError.noInputDevice }
+        return format
     }
 
     private static func usableFormat(_ input: AVAudioInputNode) throws -> AVAudioFormat {
